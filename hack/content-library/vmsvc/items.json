@@ -1,0 +1,561 @@
+{
+  "items": [
+    {
+      "files": [
+        {
+          "hrefs": [
+            "ubuntu-2004-cloud-init-21.4-kube-v1.20.10/ubuntu-2004-cloud-init-21.4-kube-v1.20.10.ova.vmdk"
+          ],
+          "etag": "2f2b873ff38bf00f74a182c8631af655",
+          "name": "ubuntu-2004-cloud-init-21.4-kube-v1.20.10.ova.vmdk",
+          "size": 1749136384
+        },
+        {
+          "hrefs": [
+            "ubuntu-2004-cloud-init-21.4-kube-v1.20.10/ubuntu-2004-cloud-init-21.4-kube-v1.20.10.ovf"
+          ],
+          "etag": "2f2b873ff38bf00f74a182c8631af655",
+          "name": "ubuntu-2004-cloud-init-21.4-kube-v1.20.10.ovf",
+          "size": 41284
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2022-01-25T16:13Z",
+      "selfHref": "ubuntu-2004-cloud-init-21.4-kube-v1.20.10/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:fa5615e7-2869-4cad-8927-92e80f407a6b",
+      "name": "ubuntu-2004-cloud-init-21.4-kube-v1.20.10"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "centos-stream-8-vmservice-v1alpha1.20210528/centos-stream-8-vmservice-v1alpha1.20210528.vmdk"
+          ],
+          "etag": "e5e586e0ecbb22048ae3a66021a0b466",
+          "name": "centos-stream-8-vmservice-v1alpha1.20210528.vmdk",
+          "size": 900938752
+        },
+        {
+          "hrefs": [
+            "centos-stream-8-vmservice-v1alpha1.20210528/centos-stream-8-vmservice-v1alpha1.20210528.ovf"
+          ],
+          "etag": "e5e586e0ecbb22048ae3a66021a0b466",
+          "name": "centos-stream-8-vmservice-v1alpha1.20210528.ovf",
+          "size": 11779
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2021-06-07T15:03Z",
+      "selfHref": "centos-stream-8-vmservice-v1alpha1.20210528/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:0be3c399-43d6-4b5e-b194-2b4fead8f8e6",
+      "name": "centos-stream-8-vmservice-v1alpha1.20210528"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "ubuntu-20.04-vmservice-v1alpha1.20210528/ubuntu-20.04-vmservice-v1alpha1.20210528-disk1.vmdk"
+          ],
+          "etag": "2d966e3576e9bff2acaf8f0e32213411",
+          "name": "ubuntu-20.04-vmservice-v1alpha1.20210528-disk1.vmdk",
+          "size": 572453376
+        },
+        {
+          "hrefs": [
+            "ubuntu-20.04-vmservice-v1alpha1.20210528/ubuntu-20.04-vmservice-v1alpha1.20210528.ovf"
+          ],
+          "etag": "2d966e3576e9bff2acaf8f0e32213411",
+          "name": "ubuntu-20.04-vmservice-v1alpha1.20210528.ovf",
+          "size": 10896
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2021-06-07T15:03Z",
+      "selfHref": "ubuntu-20.04-vmservice-v1alpha1.20210528/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:55d96a2b-5196-458c-baa6-068cdfd5e5be",
+      "name": "ubuntu-20.04-vmservice-v1alpha1.20210528"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "ubuntu-jammy-22.04-cloudimg/ubuntu-jammy-22.04-cloudimg.mf"
+          ],
+          "etag": "16d94b02fe3b3e26eb27126a609bd470",
+          "name": "ubuntu-jammy-22.04-cloudimg.mf",
+          "size": 213
+        },
+        {
+          "hrefs": [
+            "ubuntu-jammy-22.04-cloudimg/ubuntu-jammy-22.04-cloudimg.ovf"
+          ],
+          "etag": "16d94b02fe3b3e26eb27126a609bd470",
+          "name": "ubuntu-jammy-22.04-cloudimg.ovf",
+          "size": 11186
+        },
+        {
+          "hrefs": [
+            "ubuntu-jammy-22.04-cloudimg/ubuntu-jammy-22.04-cloudimg.vmdk"
+          ],
+          "etag": "16d94b02fe3b3e26eb27126a609bd470",
+          "name": "ubuntu-jammy-22.04-cloudimg.vmdk",
+          "size": 664553472
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2023-04-27T11:20Z",
+      "selfHref": "ubuntu-jammy-22.04-cloudimg/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:87b23c2d-0293-4029-b346-df515980fdfc",
+      "name": "ubuntu-jammy-22.04-cloudimg"
+    },
+    {
+      "created": "2022-11-21T19:11Z",
+      "description": "",
+      "version": "6",
+      "files": [
+        {
+          "name": "haproxy.ovf",
+          "size": 47112,
+          "etag": "b80c477d0f45692c7dcdd40b7e4fb503",
+          "generationNum": 1725379530,
+          "hrefs": [
+            "haproxy-v0.2.0/haproxy.ovf"
+          ]
+        },
+        {
+          "name": "haproxy.ova.vmdk",
+          "size": 625911296,
+          "etag": "b80c477d0f45692c7dcdd40b7e4fb503",
+          "generationNum": 1714676544,
+          "hrefs": [
+            "haproxy-v0.2.0/haproxy.ova.vmdk"
+          ]
+        },
+        {
+          "name": "haproxy.mf",
+          "size": 177,
+          "etag": "b80c477d0f45692c7dcdd40b7e4fb503",
+          "generationNum": 1725379568,
+          "hrefs": [
+            "haproxy-v0.2.0/haproxy.mf"
+          ]
+        }
+      ],
+      "id": "urn:uuid:61ac0ec2-6c41-4f1c-b265-e9ba2a91ca58",
+      "name": "haproxy-v0.2.0",
+      "properties": {},
+      "selfHref": "haproxy-v0.2.0/item.json",
+      "type": "vcsp.ovf",
+      "contentVersion": "5"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "null-vmservice-v1alpha1.20210225/null-vmservice-v1alpha1.20210225-disk1.vmdk"
+          ],
+          "etag": "c2f5b3d51848b377ec8bc053861880c0",
+          "name": "null-vmservice-v1alpha1.20210225-disk1.vmdk",
+          "size": 68096
+        },
+        {
+          "hrefs": [
+            "null-vmservice-v1alpha1.20210225/null-vmservice-v1alpha1.20210225.ovf"
+          ],
+          "etag": "c2f5b3d51848b377ec8bc053861880c0",
+          "name": "null-vmservice-v1alpha1.20210225.ovf",
+          "size": 12876
+        }
+      ],
+      "properties": {},
+      "version": "3",
+      "description": "",
+      "created": "2021-02-25T14:56Z",
+      "selfHref": "null-vmservice-v1alpha1.20210225/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:a6c0c790-afb1-4686-8d78-f57d0b2d1244",
+      "name": "null-vmservice-v1alpha1.20210225"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "photon-3-cloud-init-21.2-kube-v1.21.9/photon-3-cloud-init-21.2-kube-v1.21.9.ova.vmdk"
+          ],
+          "etag": "4ab1b4c2dd2c96cfc723cee6027a4ca9",
+          "name": "photon-3-cloud-init-21.2-kube-v1.21.9.ova.vmdk",
+          "size": 1048443904
+        },
+        {
+          "hrefs": [
+            "photon-3-cloud-init-21.2-kube-v1.21.9/photon-3-cloud-init-21.2-kube-v1.21.9.ovf"
+          ],
+          "etag": "4ab1b4c2dd2c96cfc723cee6027a4ca9",
+          "name": "photon-3-cloud-init-21.2-kube-v1.21.9.ovf",
+          "size": 41287
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2022-02-11T16:35Z",
+      "selfHref": "photon-3-cloud-init-21.2-kube-v1.21.9/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:56d1b22a-2de6-423a-b790-c5c3382de82b",
+      "name": "photon-3-cloud-init-21.2-kube-v1.21.9"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "ubuntu-impish-21.10-cloudimg/ubuntu-impish-21.10-cloudimg.vmdk"
+          ],
+          "etag": "27fd97f3690c1a1c20d8d510a03d986e",
+          "name": "ubuntu-impish-21.10-cloudimg.vmdk",
+          "size": 545859072
+        },
+        {
+          "hrefs": [
+            "ubuntu-impish-21.10-cloudimg/ubuntu-impish-21.10-cloudimg.mf"
+          ],
+          "etag": "27fd97f3690c1a1c20d8d510a03d986e",
+          "name": "ubuntu-impish-21.10-cloudimg.mf",
+          "size": 215
+        },
+        {
+          "hrefs": [
+            "ubuntu-impish-21.10-cloudimg/ubuntu-impish-21.10-cloudimg.ovf"
+          ],
+          "etag": "27fd97f3690c1a1c20d8d510a03d986e",
+          "name": "ubuntu-impish-21.10-cloudimg.ovf",
+          "size": 11189
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2021-09-07T13:54Z",
+      "selfHref": "ubuntu-impish-21.10-cloudimg/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:b56d8843-2fee-45a2-b781-3c7861da3156",
+      "name": "ubuntu-impish-21.10-cloudimg"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "windows-server2022-efi-tools/111535-Windows-Server2022-64-EFI-Tools.mf"
+          ],
+          "etag": "b15a4b71bb520f5524c29b09b7542479",
+          "name": "111535-Windows-Server2022-64-EFI-Tools.mf",
+          "size": 366
+        },
+        {
+          "hrefs": [
+            "windows-server2022-efi-tools/111535-Windows-Server2022-64-EFI-Tools-file1.nvram"
+          ],
+          "etag": "b15a4b71bb520f5524c29b09b7542479",
+          "name": "111535-Windows-Server2022-64-EFI-Tools-file1.nvram",
+          "size": 270840
+        },
+        {
+          "hrefs": [
+            "windows-server2022-efi-tools/111535-Windows-Server2022-64-EFI-Tools.ovf"
+          ],
+          "etag": "b15a4b71bb520f5524c29b09b7542479",
+          "name": "111535-Windows-Server2022-64-EFI-Tools.ovf",
+          "size": 10051
+        },
+        {
+          "hrefs": [
+            "windows-server2022-efi-tools/111535-Windows-Server2022-64-EFI-Tools-disk1.vmdk"
+          ],
+          "etag": "b15a4b71bb520f5524c29b09b7542479",
+          "name": "111535-Windows-Server2022-64-EFI-Tools-disk1.vmdk",
+          "size": 6597355008
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2023-04-18T12:09Z",
+      "selfHref": "windows-server2022-efi-tools/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:10c753c6-110a-426f-bb6c-17f740a37fa6",
+      "name": "windows-server2022-efi-tools"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "groovy-20210415.1-with-ovt-11.3/groovy-20210415.1-with-ovt-11.3.ovf"
+          ],
+          "etag": "f9e3bf057bca631bcfe7c49c55bee6d8",
+          "name": "groovy-20210415.1-with-ovt-11.3.ovf",
+          "size": 10775
+        },
+        {
+          "hrefs": [
+            "groovy-20210415.1-with-ovt-11.3/groovy-20210415.1-with-ovt-11.3.vmdk"
+          ],
+          "etag": "f9e3bf057bca631bcfe7c49c55bee6d8",
+          "name": "groovy-20210415.1-with-ovt-11.3.vmdk",
+          "size": 584087040
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2021-07-19T10:04Z",
+      "selfHref": "groovy-20210415.1-with-ovt-11.3/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:58840f72-626f-4a0d-8fbe-d7443f27fe74",
+      "name": "groovy-20210415.1-with-ovt-11.3"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "jammy-server-cloudimg-amd64/ubuntu-jammy-22.04-cloudimg.mf"
+          ],
+          "etag": "0fb85a6d6f6d9ffcfb635938cd7fa2c7",
+          "name": "ubuntu-jammy-22.04-cloudimg.mf",
+          "size": 213
+        },
+        {
+          "hrefs": [
+            "jammy-server-cloudimg-amd64/ubuntu-jammy-22.04-cloudimg.ovf"
+          ],
+          "etag": "0fb85a6d6f6d9ffcfb635938cd7fa2c7",
+          "name": "ubuntu-jammy-22.04-cloudimg.ovf",
+          "size": 11186
+        },
+        {
+          "hrefs": [
+            "jammy-server-cloudimg-amd64/ubuntu-jammy-22.04-cloudimg.vmdk"
+          ],
+          "etag": "0fb85a6d6f6d9ffcfb635938cd7fa2c7",
+          "name": "ubuntu-jammy-22.04-cloudimg.vmdk",
+          "size": 614594560
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2022-08-25T12:34Z",
+      "selfHref": "jammy-server-cloudimg-amd64/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:e47c1a8f-c9b8-4361-b53e-e6f193bfdc14",
+      "name": "jammy-server-cloudimg-amd64"
+    },
+    {
+      "files": [
+        {
+          "hrefs": [
+            "centos-stream8-cloudinit-22.1/centos-stream8-cloudinit-22.1.ovf"
+          ],
+          "etag": "55f65794e4f20d7bd774813b4de6b6ec",
+          "name": "centos-stream8-cloudinit-22.1.ovf",
+          "size": 6237
+        },
+        {
+          "hrefs": [
+            "centos-stream8-cloudinit-22.1/centos-stream8-cloudinit-22.1-disk1.vmdk"
+          ],
+          "etag": "55f65794e4f20d7bd774813b4de6b6ec",
+          "name": "centos-stream8-cloudinit-22.1-disk1.vmdk",
+          "size": 1016687104
+        }
+      ],
+      "properties": {},
+      "version": "2",
+      "description": "",
+      "created": "2022-05-02T16:17Z",
+      "selfHref": "centos-stream8-cloudinit-22.1/item.json",
+      "type": "vcsp.ovf",
+      "id": "urn:uuid:cbd50c4d-a98d-4aea-8480-f5e4576b600f",
+      "name": "centos-stream8-cloudinit-22.1"
+    },
+    {
+      "created": "2024-08-01T14:31:17.058511",
+      "description": "",
+      "version": "2",
+      "files": [
+        {
+          "name": "ubuntu-24.04-live-server-amd64.iso",
+          "size": 2754981888,
+          "etag": "b33b57dea8c827febc89f38b31d532e6",
+          "generationNum": 1722531585,
+          "hrefs": [
+            "ubuntu-24.04-live-server-amd64/ubuntu-24.04-live-server-amd64.iso"
+          ]
+        }
+      ],
+      "id": "urn:uuid:c147d56d-12dd-4a99-a24a-13cb622e4446",
+      "name": "ubuntu-24.04-live-server-amd64",
+      "properties": {},
+      "selfHref": "ubuntu-24.04-live-server-amd64/item.json",
+      "type": "vcsp.iso",
+      "contentVersion": "2"
+    },
+    {
+      "created": "2024-12-17T15:19:58.684129",
+      "description": "",
+      "version": "2",
+      "files": [
+        {
+          "name": "photon-ova-disk1.vmdk",
+          "size": 322319360,
+          "etag": "955da41f25da1067cc50b62705a58f09",
+          "generationNum": 1682392591,
+          "hrefs": [
+            "photon-5.0/photon-ova-disk1.vmdk"
+          ]
+        },
+        {
+          "name": "photon-ova.ovf",
+          "size": 38532,
+          "etag": "955da41f25da1067cc50b62705a58f09",
+          "generationNum": 1733953423,
+          "hrefs": [
+            "photon-5.0/photon-ova.ovf"
+          ]
+        },
+        {
+          "name": "photon-ova.mf",
+          "size": 133,
+          "etag": "955da41f25da1067cc50b62705a58f09",
+          "generationNum": 1733953478,
+          "hrefs": [
+            "photon-5.0/photon-ova.mf"
+          ]
+        }
+      ],
+      "id": "urn:uuid:3bd50385-c323-429b-b96e-f2333db7d1fe",
+      "name": "photon-5.0",
+      "properties": {},
+      "selfHref": "photon-5.0/item.json",
+      "type": "vcsp.ovf",
+      "metadata": [
+        {
+          "key": "type-metadata",
+          "value": "{\"id\":\"3bd50385-c323-429b-b96e-f2333db7d1fe\",\"version\":\"2\",\"libraryIdParent\":\"deb651b1-5c0f-48aa-8c9a-6697269d9c11\",\"isVappTemplate\":\"False\",\"vmTemplate\":null,\"vappTemplate\":null,\"networks\":[],\"storagePolicyGroups\":null}",
+          "type": "String",
+          "domain": "SYSTEM",
+          "visibility": "READONLY"
+        }
+      ],
+      "contentVersion": "2"
+    },
+    {
+      "created": "2026-05-12T21:10:00.000000",
+      "description": "TinyCore Linux with complex hardware (SCSI + 2x IDE + USB + PCI controllers). Used for E2E testing of OVF deployment with complex device controller references.",
+      "version": "2",
+      "files": [
+        {
+          "hrefs": [
+            "tiny-core-linux-complex-hw/TinyCoreLinux-disk1.vmdk"
+          ],
+          "etag": "15a3941581c79ae59516ae5675418f6c",
+          "name": "TinyCoreLinux-disk1.vmdk",
+          "size": 70435328,
+          "generationNum": 1778620408
+        },
+        {
+          "hrefs": [
+            "tiny-core-linux-complex-hw/TinyCoreLinux.mf"
+          ],
+          "etag": "15a3941581c79ae59516ae5675418f6c",
+          "name": "TinyCoreLinux.mf",
+          "size": 139,
+          "generationNum": 1779224288
+        },
+        {
+          "hrefs": [
+            "tiny-core-linux-complex-hw/TinyCoreLinux.ovf"
+          ],
+          "etag": "15a3941581c79ae59516ae5675418f6c",
+          "name": "TinyCoreLinux.ovf",
+          "size": 7327,
+          "generationNum": 1778620396
+        }
+      ],
+      "id": "urn:uuid:4a7f3c21-e8d9-4b56-a102-8f3c9d1e7b44",
+      "name": "tiny-core-linux-complex-hw",
+      "properties": {},
+      "selfHref": "tiny-core-linux-complex-hw/item.json",
+      "type": "vcsp.ovf",
+      "metadata": [
+        {
+          "key": "type-metadata",
+          "value": "{\"id\":\"4a7f3c21-e8d9-4b56-a102-8f3c9d1e7b44\",\"version\":\"2\",\"libraryIdParent\":\"deb651b1-5c0f-48aa-8c9a-6697269d9c11\",\"isVappTemplate\":\"False\",\"vmTemplate\":null,\"vappTemplate\":null,\"networks\":[],\"storagePolicyGroups\":null}",
+          "type": "String",
+          "domain": "SYSTEM",
+          "visibility": "READONLY"
+        }
+      ],
+      "contentVersion": "2"
+    },
+    {
+      "created": "2026-05-12T21:10:00.000000",
+      "description": "Photon OS 5.0 OVF with custom vApp properties (string, password, boolean, int types). Used for E2E testing of OVF deployment with vApp property application.",
+      "version": "2",
+      "files": [
+        {
+          "hrefs": [
+            "photon-ovf-vapp-properties/photon-ova-disk1.vmdk"
+          ],
+          "etag": "d98a1d0e5bb6e7a2beb992a8c8ee3b47",
+          "name": "photon-ova-disk1.vmdk",
+          "size": 300576768,
+          "generationNum": 1778620452
+        },
+        {
+          "hrefs": [
+            "photon-ovf-vapp-properties/photon-ova-property-test.mf"
+          ],
+          "etag": "d98a1d0e5bb6e7a2beb992a8c8ee3b47",
+          "name": "photon-ova-property-test.mf",
+          "size": 147,
+          "generationNum": 1779224288
+        },
+        {
+          "hrefs": [
+            "photon-ovf-vapp-properties/photon-ova-property-test.ovf"
+          ],
+          "etag": "d98a1d0e5bb6e7a2beb992a8c8ee3b47",
+          "name": "photon-ova-property-test.ovf",
+          "size": 39782,
+          "generationNum": 1778620397
+        }
+      ],
+      "id": "urn:uuid:9c2e5f87-3a14-4d78-b931-2c6e0a4f8d55",
+      "name": "photon-ovf-vapp-properties",
+      "properties": {},
+      "selfHref": "photon-ovf-vapp-properties/item.json",
+      "type": "vcsp.ovf",
+      "metadata": [
+        {
+          "key": "type-metadata",
+          "value": "{\"id\":\"9c2e5f87-3a14-4d78-b931-2c6e0a4f8d55\",\"version\":\"2\",\"libraryIdParent\":\"deb651b1-5c0f-48aa-8c9a-6697269d9c11\",\"isVappTemplate\":\"False\",\"vmTemplate\":null,\"vappTemplate\":null,\"networks\":[],\"storagePolicyGroups\":null}",
+          "type": "String",
+          "domain": "SYSTEM",
+          "visibility": "READONLY"
+        }
+      ],
+      "contentVersion": "2"
+    }
+  ]
+}

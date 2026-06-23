@@ -1,0 +1,49 @@
+{
+  "created": "2026-05-12T21:10:00.000000",
+  "description": "Photon OS 5.0 OVF with custom vApp properties (string, password, boolean, int types). Used for E2E testing of OVF deployment with vApp property application.",
+  "version": "2",
+  "files": [
+    {
+      "hrefs": [
+        "photon-ovf-vapp-properties/photon-ova-disk1.vmdk"
+      ],
+      "etag": "d98a1d0e5bb6e7a2beb992a8c8ee3b47",
+      "name": "photon-ova-disk1.vmdk",
+      "size": 300576768,
+      "generationNum": 1778620452
+    },
+    {
+      "hrefs": [
+        "photon-ovf-vapp-properties/photon-ova-property-test.mf"
+      ],
+      "etag": "d98a1d0e5bb6e7a2beb992a8c8ee3b47",
+      "name": "photon-ova-property-test.mf",
+      "size": 147,
+      "generationNum": 1779224288
+    },
+    {
+      "hrefs": [
+        "photon-ovf-vapp-properties/photon-ova-property-test.ovf"
+      ],
+      "etag": "d98a1d0e5bb6e7a2beb992a8c8ee3b47",
+      "name": "photon-ova-property-test.ovf",
+      "size": 39782,
+      "generationNum": 1778620397
+    }
+  ],
+  "id": "urn:uuid:9c2e5f87-3a14-4d78-b931-2c6e0a4f8d55",
+  "name": "photon-ovf-vapp-properties",
+  "properties": {},
+  "selfHref": "photon-ovf-vapp-properties/item.json",
+  "type": "vcsp.ovf",
+  "metadata": [
+    {
+      "key": "type-metadata",
+      "value": "{\"id\":\"9c2e5f87-3a14-4d78-b931-2c6e0a4f8d55\",\"version\":\"2\",\"libraryIdParent\":\"deb651b1-5c0f-48aa-8c9a-6697269d9c11\",\"isVappTemplate\":\"False\",\"vmTemplate\":null,\"vappTemplate\":null,\"networks\":[],\"storagePolicyGroups\":null}",
+      "type": "String",
+      "domain": "SYSTEM",
+      "visibility": "READONLY"
+    }
+  ],
+  "contentVersion": "2"
+}

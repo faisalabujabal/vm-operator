@@ -1,0 +1,2 @@
+SHA1(photon-ova-disk1.vmdk)= 205f65938d6ed2fa3ee8d2aadc815e09d4a54583
+SHA1(photon-ova-property-test.ovf)= 533bfab10827fa2323d028e377292a176831923d

@@ -1,0 +1,2 @@
+SHA1(TinyCoreLinux-disk1.vmdk)= 3ebdae48c2df0dec9a28c5f90faafefbdf5f8049
+SHA1(TinyCoreLinux.ovf)= b0e6d91f484640d40ae1838b061a0080c6b13235

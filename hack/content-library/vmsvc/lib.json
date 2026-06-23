@@ -1,0 +1,17 @@
+{
+  "vcspVersion": "2",
+  "version": "1",
+  "contentVersion": "1",
+  "name": "vmsvc-cl",
+  "id": "urn:uuid:deb651b1-5c0f-48aa-8c9a-6697269d9c11",
+  "created": "2024-12-17T15:19:58.691559",
+  "capabilities": {
+    "transferIn": [
+      "httpGet"
+    ],
+    "transferOut": [
+      "httpGet"
+    ]
+  },
+  "itemsHref": "items.json"
+}

@@ -40,6 +40,18 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Retry configuration.
+# ---------------------------------------------------------------------------
+# SSH to vCenter (decryptK8Pwd.py): Supervisor may still be initialising when
+# the e2e runner starts, so allow a generous window.
+_DECRYPT_RETRY_ATTEMPTS=6
+_DECRYPT_RETRY_INITIAL_DELAY=10   # seconds; doubles each attempt (~5 min total)
+
+# SCP kubeconfig from Supervisor control-plane VM.
+_KUBECONFIG_RETRY_ATTEMPTS=5
+_KUBECONFIG_RETRY_INITIAL_DELAY=5 # seconds; doubles each attempt (~2.5 min total)
+
+# ---------------------------------------------------------------------------
 # Module-level helpers.
 # All progress/diagnostic output goes to stderr so stdout stays clean for the
 # "export VAR=value" lines (which the caller can pipe through eval).
@@ -47,6 +59,34 @@ fi
 _log()  { printf '%s\n'          "$*" >&2; }
 _warn() { printf 'Warning: %s\n' "$*" >&2; }
 _err()  { printf 'Error: %s\n'   "$*" >&2; }
+
+# _retry_with_backoff <max_attempts> <initial_delay_seconds> <description> <cmd> [args...]
+#
+# Runs <cmd> [args...] up to <max_attempts> times with exponential backoff
+# starting at <initial_delay_seconds>.  Returns 0 on the first success, or 1
+# after all attempts are exhausted.
+_retry_with_backoff() {
+    local -r max_attempts="$1"
+    local -r initial_delay="$2"
+    local -r description="$3"
+    shift 3
+
+    local attempt=1
+    local delay="${initial_delay}"
+    while (( attempt <= max_attempts )); do
+        if "$@"; then
+            return 0
+        fi
+        if (( attempt < max_attempts )); then
+            _warn "${description} failed (attempt ${attempt}/${max_attempts}); retrying in ${delay}s..."
+            sleep "${delay}"
+            delay=$(( delay * 2 ))
+        fi
+        (( attempt++ ))
+    done
+    _warn "${description} failed after ${max_attempts} attempts"
+    return 1
+}
 
 # Export a variable and, when running as a subprocess, also emit an eval-safe
 # "export VAR=value" line to stdout.
@@ -217,6 +257,24 @@ _export_common_vars() {
 }
 
 # ---------------------------------------------------------------------------
+# _decrypt_wcp_credentials
+#
+# Runs decryptK8Pwd.py on vCenter via SSH and stores the output in the
+# caller's wcp_raw variable (dynamic scoping — must be declared local by the
+# caller).  Returns 1 if the SSH fails or produces empty output so that
+# _retry_with_backoff can treat it as a retriable failure.
+# ---------------------------------------------------------------------------
+_decrypt_wcp_credentials() {
+    local _out
+    _out=$(sshpass -p "${vc_root_password}" \
+            ssh "${_SSH_OPTS[@]}" -o ConnectTimeout=30 \
+            "${vc_root_username}@${vc_url}" \
+            "/usr/lib/vmware-wcp/decryptK8Pwd.py" 2>/dev/null) || return 1
+    [[ -n "${_out}" ]] || return 1
+    wcp_raw="${_out}"
+}
+
+# ---------------------------------------------------------------------------
 # _fetch_supervisor_access <enable_e2e>
 #
 # SSHes to vCenter to run decryptK8Pwd.py, downloads the supervisor kubeconfig,
@@ -241,15 +299,10 @@ _fetch_supervisor_access() {
     fi
 
     local wcp_raw=""
-    if ! wcp_raw=$(sshpass -p "${vc_root_password}" \
-            ssh "${_SSH_OPTS[@]}" -o ConnectTimeout=30 \
-            "${vc_root_username}@${vc_url}" \
-            "/usr/lib/vmware-wcp/decryptK8Pwd.py" 2>/dev/null); then
-        _warn "SSH to vCenter to list WCP clusters failed — WCP may not be enabled yet"
-    fi
-
-    if [[ -z "${wcp_raw}" ]]; then
-        _warn "No WCP credentials returned — supervisor cluster may not be ready"
+    if ! _retry_with_backoff "${_DECRYPT_RETRY_ATTEMPTS}" "${_DECRYPT_RETRY_INITIAL_DELAY}" \
+            "SSH to vCenter (decryptK8Pwd.py)" \
+            _decrypt_wcp_credentials; then
+        _warn "No WCP credentials returned after ${_DECRYPT_RETRY_ATTEMPTS} attempts — supervisor cluster may not be ready"
         return 0
     fi
 
@@ -263,10 +316,11 @@ _fetch_supervisor_access() {
     local -r wcp_kubeconfig_dest="${HOME}/.kube/wcp-config"
 
     _log "Downloading kubeconfig to ${kubeconfig_dest}..."
-    if ! sshpass -p "${wcp_password}" \
+    if ! _retry_with_backoff "${_KUBECONFIG_RETRY_ATTEMPTS}" "${_KUBECONFIG_RETRY_INITIAL_DELAY}" "SCP kubeconfig from supervisor" \
+            sshpass -p "${wcp_password}" \
             scp "${_SSH_OPTS[@]}" -o ConnectTimeout=30 \
-            "root@${wcp_ip}:~/.kube/config" "${kubeconfig_dest}" 2>/dev/null; then
-        _warn "Failed to copy kubeconfig from supervisor cluster; kubectl access may fail"
+            "root@${wcp_ip}:~/.kube/config" "${kubeconfig_dest}"; then
+        _warn "Failed to copy kubeconfig from supervisor cluster after retries; kubectl access may fail"
         return 0
     fi
 

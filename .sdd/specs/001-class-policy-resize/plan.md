@@ -74,8 +74,8 @@ controllers/
 ├── infra/zone/
 │   └── zone_controller.go              MODIFY — fan out ConfigTarget + VMConfigPolicy
 ├── configtarget/
-│   ├── configtarget_controller.go      NEW — cluster-scope + per-host iteration
-│   └── gc.go                           NEW — GC stale VirtualMachineConfigOptions
+│   └── configtarget_controller.go      NEW — cluster-scope only; GC is inline
+│                                             (no gc.go — see tds.md § 2.1)
 ├── virtualmachineconfigoptions/
 │   └── vmconfigoptions_controller.go   NEW
 ├── virtualmachineconfigpolicy/
@@ -90,8 +90,9 @@ webhooks/
 ├── virtualmachineconfigoptions/
 │   └── validation_webhook.go           NEW
 ├── virtualmachineconfigpolicy/
-│   ├── validation_webhook.go           NEW
-│   └── defaulting_webhook.go           NEW
+│   └── validation/                     NEW — spec.zone must reference a live Zone
+│                                             (no defaulting webhook: the five mode
+│                                              fields use +kubebuilder:default=)
 └── virtualmachine/
     └── validation_webhook.go           MODIFY — add policy + ConfigTarget capability checks
 
@@ -101,25 +102,22 @@ pkg/
 ├── providers/vsphere/
 │   └── environment_browser.go          NEW — QueryConfigTarget, QueryConfigOptionDescriptor,
 │                                              QueryConfigOptionEx, per-host PropertyCollector
-└── vmconfig/policy/
-    └── policy_reconciler.go            NEW — ConfigTarget→policy spec sync logic
+└── util/configpolicysync/
+    └── configpolicysync.go             NEW — ConfigTarget→policy spec sync logic
+                                              (not pkg/vmconfig/policy/, which
+                                               already exists for per-VM tag work)
 
 config/rbac/
 └── role.yaml                           MODIFY — add new resources
 
-test/
-├── unit/
-│   ├── configtarget/                   NEW
-│   ├── virtualmachineconfigoptions/    NEW
-│   └── virtualmachineconfigpolicy/     NEW
-└── intg/
-    ├── configtarget/                   NEW
-    ├── virtualmachineconfigoptions/    NEW
-    └── virtualmachineconfigpolicy/     NEW
-
-test/e2e/vmservice/
+test/e2e/vmservice/vmservice/
 └── configpolicy/
-    └── configpolicy_test.go            NEW
+    └── configpolicy.go                 NEW — shared Spec(), registered as
+                                              Context("CONFIG-POLICY")
+
+(There is no test/unit/ or test/intg/ tree in this repo. Unit and
+ integration specs live in one _test.go per package and are separated
+ by Ginkgo Label() — see .sdd/memory/testing-standards.md.)
 ```
 
 There is no `hostsystem_types.go`, no `controllers/hostsystem/`, no `webhooks/hostsystem/`, no `config/rbac/hostsystem_*.yaml`, no `config/crd/external-crds/vim.vmware.com_hostsystems.yaml`, and no `test/intg/hostsystem/`. The earlier draft of this plan included those files; they were removed when the `HostSystem` CRD was consolidated into the `ConfigTarget` controller (see `research.md` Finding 7).
@@ -262,10 +260,7 @@ New controller `controllers/virtualmachineconfigpolicy/`:
 3. If `spec.syncMode = Disabled`: set `Ready=True` with reason `SyncDisabled`; do not modify `spec`.
 4. Never overwrite `spec.extraConfig`, `spec.latencySensitivityLevels`, or other non-ConfigTarget-derived fields during sync.
 
-**Defaulting webhook** (`webhooks/virtualmachineconfigpolicy/defaulting_webhook.go`):
-- `spec.syncMode` → `ConfigTarget`
-- `spec.createMode / updateMode / powerOnMode` → `Allow`
-- `spec.vmClassMode` → `AsPolicy`
+**Defaulting** — no webhook. All five fields carry `+kubebuilder:default=` on the type, so the API server applies them: `syncMode=ConfigTarget`, `createMode`/`updateMode`/`powerOnMode=Allow`, `vmClassMode=AsPolicy`. Per `.sdd/memory/constitution.md` as amended by PR #1779, schema defaults and CEL are preferred over Go webhooks for plain structural rules.
 
 **Validation webhook**:
 - `spec.zone` must reference an existing `Zone`.
@@ -295,9 +290,11 @@ if vmHardwareVersion(vm) > ct.Status.MaxHardwareVersion {
 
 Single informer-cached `Get`. No list across per-host objects, no label selector match.
 
-#### I8. ConfigTarget SR-IOV per-host enrichment (Story S10 / vmop-3926)
+#### I8. ConfigTarget SR-IOV per-host enrichment — designed here, **deferred to a future release**
 
-**Modify** `external/vim/api/v1alpha1/config_target_devices_types.go` — extend `VirtualMachineSriovInfo` so the cluster-aggregated list still attributes each NIC to a specific host and exposes the same DVX-related capabilities the dropped `HostSRIOVNIC` type carried:
+This subsection records the design as it was worked out under this spec, so the architecture stays legible: SR-IOV is the one device category the cluster-scope path cannot supply, and the reason `ConfigTarget.status` is shaped the way it is. **The implementation plan lives in spec [`003-configtarget-sriov-per-host`](../003-configtarget-sriov-per-host/)**, against a new epic. Nothing in this release implements it, and `ConfigTarget.status.sriov` ships as an always-empty list.
+
+**API extension** — `external/vim/api/v1alpha1/config_target_devices_types.go`, extending `VirtualMachineSriovInfo` so the cluster-aggregated list still attributes each NIC to a specific host and exposes the DVX capabilities the dropped `HostSRIOVNIC` type carried:
 
 ```go
 // HostMoID is the ManagedObjectID of the ESX host whose
@@ -350,20 +347,25 @@ DVXCheckpointSupported bool `json:"dvxCheckpointSupported,omitempty"`
 DVXSWDMATracingSupported bool `json:"dvxSwDmaTracingSupported,omitempty"`
 ```
 
-`ConfigTarget.status.sriov` gains `+listType=map` with `+listMapKey=hostMoID` plus `+listMapKey=id` so that the same physical NIC on different hosts is patchable as distinct entries.
+`ConfigTarget.status.sriov` gains `+listType=map` with `+listMapKey=hostMoID` plus `+listMapKey=pciDevice.id` so the same physical NIC on different hosts is patchable as distinct entries.
 
-Regenerate `zz_generated.deepcopy.go` and the `vim.vmware.com_configtargets.yaml` CRD manifest via `make generate manifests`.
-
-**Modify** `controllers/configtarget/configtarget_controller.go` with a per-host enrichment path, additive to the cluster-scope path in I3:
+**Controller extension** — a per-host path in `controllers/configtarget/`, additive to the cluster-scope path in I3:
 
 1. Enumerate cluster hosts via `ClusterComputeResource.host`.
-2. For each host, issue a single `PropertyCollector` RPC fetching:
-   - `config.pciPassthruInfo` (filtered for `HostSriovInfo` entries where `sriovCapable == true`)
-   - `hardware.dvxClasses` (entries where `sriovNic == true`)
-3. Build per-host `VirtualMachineSriovInfo` entries from the SR-IOV / DVX data and write them to `ConfigTarget.status.sriov`. Each entry carries `hostMoID` for attribution.
-4. Per-host RPC failures are logged + emitted as warning events; they are not fatal. The reconcile is requeued so the absent host's data lands on a later pass. The successful hosts' data is still written.
+2. For each host, issue a single `PropertyCollector` RPC fetching `config.pciPassthruInfo` (filtered for `HostSriovInfo` entries where `sriovCapable == true`) and `hardware.dvxClasses` (entries where `sriovNic == true`).
+3. Build per-host `VirtualMachineSriovInfo` entries and write them to `ConfigTarget.status.sriov`, each carrying `hostMoID` for attribution.
+4. Per-host RPC failures are logged and emitted as warning events; they are not fatal. The reconcile is requeued so the absent host's data lands on a later pass. The successful hosts' data is still written.
 
 No per-host CRD is created; the per-host data is owned entirely by `ConfigTarget.status`. There is no second controller and no watch wiring between `ConfigTarget` and any per-host kind.
+
+**What deferral changed.** Spec 003 carries this forward and adds four things this subsection never resolved, each of which can change the shape of the code:
+
+| Question | Why it was not answerable here |
+|----------|-------------------------------|
+| Is the API change additive-safe against a shipped 9.2 `ConfigTarget`? | Only became a question once SR-IOV slipped past the release that ships the CRD. Turns on whether 9.2 ever writes a non-empty `status.sriov` |
+| Does a *total* per-host failure set `Ready=False`? | The admission webhook keys off this; getting it wrong converts a discovery outage into a capability denial |
+| Can vcsim report `config.pciPassthruInfo` / `hardware.dvxClasses` at all? | If not, there is no test layer between unit tests and hardware nobody has |
+| Is a disconnected / maintenance-mode host a failure or a skip? | Determines whether routine maintenance produces continuous warning events across every cluster |
 
 ---
 
@@ -395,10 +397,12 @@ No per-host CRD is created; the per-host data is owned entirely by `ConfigTarget
 | Layer | Mechanism | Location |
 |-------|-----------|----------|
 | Unit | `*_test.go` beside source | beside each controller/webhook/pkg package |
-| Integration | `*_intg_test.go` + `vcsim` | `test/intg/` |
-| E2E | Ginkgo, real Supervisor | `test/e2e/vmservice/configpolicy/` |
+| Integration (envtest / vcsim) | same `_test.go`, separate `Describe`, distinguished by Ginkgo `Label()` | beside each package — **there is no `test/intg/` tree** |
+| E2E | Ginkgo, real Supervisor | `test/e2e/vmservice/vmservice/configpolicy/configpolicy.go` |
 
 **GC must be tested at all three layers** (see `spec.md` US4 scenarios).
+
+The authoritative, per-case test design — which level owns what, what is covered today, and what is not — is [`tds.md`](tds.md) §§ 11–15. This table is only the shape.
 
 ---
 

@@ -26,13 +26,14 @@ These apply to all work in this repo. Read them before making or reviewing any c
 
 ## Specs — per-feature artifacts
 
-Each spec lives under `specs/NNN-slug/`. Standard artifacts: `spec.md` (behavior + acceptance criteria), `plan.md` (technical approach), `tasks.md` (ordered task list), `research.md` (investigation log), `model.md` (API surface, if applicable).
+Each spec lives under `specs/NNN-slug/`. Standard artifacts: `spec.md` (behavior + acceptance criteria), `plan.md` (technical approach), `tasks.md` (ordered task list), `research.md` (investigation log), `model.md` (API surface, if applicable), `tds.md` (implementation-level technical design + test design, where the feature has one).
 
 | # | Slug | Title | Status | Epic |
 |---|------|-------|--------|------|
 | 000 | [sdd](specs/000-sdd/) | VM Operator Specification Driven Development | In Progress | vmop-3820 |
-| 001 | [class-policy-resize](specs/001-class-policy-resize/) | VM Service Class Policy and Resize — Policy + Environment Browser Pipeline | In Progress | vmop-3331 |
+| 001 | [class-policy-resize](specs/001-class-policy-resize/) | VM Service Class Policy and Resize — Policy + Environment Browser Pipeline (incl. [`tds.md`](specs/001-class-policy-resize/tds.md) — technical + test design) | In Progress | vmop-3331 |
 | 002 | [vm-extraconfig-reconcile](specs/002-vm-extraconfig-reconcile/) | VM ExtraConfig Reconciliation — E2E Coverage (`spec.md`/`plan.md` pending) | In Progress | vmop-3782 |
+| 003 | [configtarget-sriov-per-host](specs/003-configtarget-sriov-per-host/) | ConfigTarget Per-Host SR-IOV Enrichment — implementation plan for spec 001's Story S10 design; **deferred to a future release** | Not started | TBD (vmop-3926) |
 
 ### Finding the right spec
 

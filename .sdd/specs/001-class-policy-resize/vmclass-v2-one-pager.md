@@ -27,7 +27,6 @@ VM sizing and configuration policy today is split across mechanisms that don't c
 ## Non-goals
 
 - **Not shipping tenant-based hierarchical classes in Phase 1 (release 9.1.3).** The mechanism is fully designed now; it ships in Phase 2 (release 9.2).
-- **Not resolving the `configSpec` migration outcome here.** Whether existing `configSpec` usage is frozen-but-readable, blocks migration until typed parity exists, or is accepted as a breaking change is a data-driven decision pending a usage survey, not a design decision made in this document.
 - **Not hardening RBAC for `VirtualMachineClass` writes.** The only production write path is wcpsvc's own service account; there is no use case driving tenant-direct authorship, so no RBAC mechanism is being designed against that possibility.
 - **Not redesigning VM/VM-group placement.** Placement (`Constraints.Zones`, `GroupPlacement`) stays entirely governance-unaware, on purpose — see Architecture Areas below.
 - **Not introducing VCFA's tenancy concepts (`provider`/`tenant`) into vm-operator.** Every mechanism here is expressed as plain object references and scoped fields, not a new authority tier.
@@ -58,7 +57,8 @@ A class that exists only to govern (never meant to be picked by a user) is not v
 - **`VirtualMachineClass` controller.** New reconcile-time check that flags, via status condition, a class whose declared range no longer nests inside its governor's — a discoverability fix, not an enforcement change.
 - **`VirtualMachine` reconciler.** New reconcile-time step that re-checks governance compliance once a VM's zone is known (regardless of single-VM or group placement) and can withhold the power-on step for `DenyPowerOn` — enforcement moves from "reject an admission-time edit" to "the reconciler declines to act," so it applies uniformly to a VM's first power-on and any later one.
 - **Placement.** Deliberately unchanged. `Constraints.Zones` and `GroupPlacement` stay governance-unaware; governance is a detection-and-enforcement layer on top of whatever zone placement picks, not an input to picking it.
-- **Migration.** Backfilling `spec.zones` on every existing class, deciding the `configSpec` migration path, and removing the `VirtualMachineConfigPolicy` kind entirely (its enforcement path was never shipped, so there's no live behavior to preserve).
+- **Migration.** Backfilling `spec.zones` on every existing class, and removing the `VirtualMachineConfigPolicy` kind entirely (its enforcement path was never shipped, so there's no live behavior to preserve). **Blocking prerequisite, must resolve before implementation starts, not deferred indefinitely:** which of the three `configSpec` migration branches (frozen-but-readable, blocked on typed parity, accepted breakage) applies is a data-driven decision pending a real production-usage survey — documentation- and fixture-level scoping for that survey is in [`vmclass-v2-governed-value-types.md`](./vmclass-v2-governed-value-types.md) §7, but the actual production data behind the decision still needs to be pulled from wcpsvc/VC before this can ship.
+- **Upstream (wcpsvc/VCFA).** The namespace-creation vAPI needs a schema change to carry per-class zone scoping for classes provisioned going forward (today it's a flat class-name set).
 - **Discoverability.** A VM-level status condition explaining why it was constrained; a read-only `Zone.status.governingClasses` mirror; the class-drift condition above — all computed views, never a new source of truth.
 
 See "Dependencies on other teams" below for the wcpsvc/VCFA and VC-facing-API work this design assumes but doesn't own.
@@ -82,10 +82,10 @@ This design depends on work outside vm-operator that it can't complete alone:
 ## Open questions
 
 **Phase 1**
-- Outcome of the `configSpec` usage survey, and which of the three migration branches it implies.
+- Outcome of the `configSpec` usage survey, and which of the three migration branches it implies. Documentation- and fixture-level scoping already done in [`vmclass-v2-governed-value-types.md`](./vmclass-v2-governed-value-types.md) §7 (five constructs confirmed documented/shipped, plus a NUMA-affinity-via-`extraConfig` finding) — real production-usage data from wcpsvc/VC is still the missing input.
 - How much tooling the discoverability regression (auditing "what governs zone X" across a namespace) needs before ship versus after.
 - Whether a "break-glass" exemption from the class-vs-class subset check is ever needed.
-- The range model for storage/disk-size fields (`instanceStorage.volumes`, `reservedProfileID`/`reservedSlots`) — doesn't reduce cleanly to `{min, max, default}`.
+- The range model for storage/disk-size fields (`instanceStorage.volumes`, `reservedProfileID`/`reservedSlots`) — doesn't reduce cleanly to `{min, max, default}`. [`vmclass-v2-governed-value-types.md`](./vmclass-v2-governed-value-types.md) §5 narrows this: `instanceStorage` has no inline `VirtualMachineSpec` twin today, so it can stay a plain preset (no range) for Phase 1; `reservedProfileID`'s "only valid when every ranged field has min == max" rule (referenced in `vmclass-v2-design.md`'s example YAML) is never actually written up in that document's §6 and needs a real validation rule specified; and `maxHardwareVersion`, shown in that same example YAML, doesn't exist on `VirtualMachineClass` in any shipped version today and needs to be added to the schema, not just the example.
 
 **Phase 2 (9.2, tenant-based VM classes)**
 - Whether deletion symmetry (a referenced class can always be deleted; dependents are only ever loosened, never invalidated) should be identical for class-to-class and VM-to-class, or diverge.

@@ -1,6 +1,6 @@
 # `VirtualMachineClass` v2: the governed-value type system
 
-- **Status**: Draft — decisions reached in discussion, not yet implemented
+- **Status**: Draft design
 - **Companion to**: [`vmclass-v2-design.md`](./vmclass-v2-design.md) (the authoritative mechanism design — `governs`, zones, `parentClassRefs`) and [`vmclass-v2-full-schema.md`](./vmclass-v2-full-schema.md) (the field-by-field `ConfigSpec` elevation worklist this document does not duplicate)
 - **Audience**: principal engineers, architecture review
 
@@ -107,12 +107,10 @@ Confirmed this is a real question, not redundancy — the two express different 
 
 **Yes, this is a subfield structure**, exactly as `ConfigPolicy` already ships it (`Allowed []Matcher`, `Denied []Matcher`), not a new invention — `§2.4` above is a straight generalization of the existing type, not a redesign of it.
 
-## §4. `spec.extraConfig` — decisions, and the `vmclass-v2-design.md` wording fix (applied)
+## §4. `spec.extraConfig`
 
-Two edits already made directly to `vmclass-v2-design.md` in this pass, since we own both documents:
-
-1. **§2.2's "no opaque escape hatch of any kind" is now "no opaque, *ungoverned* escape hatch."** The original wording was written with `configSpec` in mind — an unstructured, unvalidatable blob. `spec.extraConfig` is categorically different: typed `[]KeyValuePair`, with governable keys (§2.4/§3 above), not comparable to `configSpec`'s arbitrary passthrough. The revised wording says so directly rather than overclaiming "no escape hatch of any kind" when a narrower, bounded one legitimately remains — and it's permanent by design, not a gap: vSphere's own VMX key space grows faster than any typed schema tracks it.
-2. **§3.2's class-vs-class bounding now explicitly covers `extraConfig.entries`, conditioned on `governs`.** Confirmed against the doc's actual text: the class-vs-class check only fires "if any existing governing class in that namespace already applies to one of its `spec.zones`" — it is not unconditional. Without extending it to `entries`, a class author could bypass a governing class's `denied` key rule simply by baking the denied key into their own preset rather than ever going through a VM's inline edit — added as a direct amendment to §3.2's paragraph, not a new mechanism.
+1. **`spec.extraConfig` is a bounded, governable fallback, not an escape hatch.** It is typed `[]KeyValuePair` with governable keys (§2.4/§3 above), unlike an arbitrary `ConfigSpec` passthrough. It is permanent by design: vSphere's own VMX key space grows faster than any typed schema tracks it. (The design doc's leftover-only `configSpec` is a separate, preset-only surface; see `vmclass-v2-design.md` §2.1.)
+2. **The class-vs-class bounding (`vmclass-v2-design.md` §3.2) covers `extraConfig.entries`, conditioned on `governs`.** The check only fires when a governing class applies to one of the candidate class's zones. Without it, a class author could bypass a governing class's `denied` key rule by baking the denied key into their own preset rather than going through a VM's inline edit.
 
 **Class shape, both roles present:**
 
@@ -138,7 +136,7 @@ All under the one surviving `VirtualMachineClass` kind — `VirtualMachineConfig
 
 ### 5.2 `reservedProfileID`/`reservedSlots` — the doc's own cross-reference doesn't resolve
 
-`vmclass-v2-design.md`'s example YAML (line 77) has `reservedProfileID: "" # only valid when every ranged field has min == max (§6 below)` — but §6 is the migration plan, and it does not actually state or elaborate this rule anywhere in its body. This is a dangling cross-reference in the doc, not a resolved decision, and is worth fixing directly in `vmclass-v2-design.md` in a follow-up pass. The rule itself is sensible on its face — reservation-profile slot guarantees don't make sense for a class with genuine range spread — but "only valid when every ranged field has min == max" needs an explicit validation-webhook rule written somewhere real, not just implied by a comment pointing at a section that never says it.
+A reserved profile ID is written into a VM's ExtraConfig (`resourcepool.vmResourceProfileId`), which places the VM in a capacity-reservation slot sized to the class; per-zone counts live in the namespace's `ZoneSpec.vmReservations`. Slot guarantees don't make sense for a class with genuine range spread, so reservations apply only to fixed classes. The validation rules are proposed in `vmclass-v2-design.md` §7.
 
 ### 5.3 `maxHardwareVersion` — appears in the design doc's examples, does not exist in the current schema
 
@@ -155,13 +153,13 @@ This is a real, newly-identified field, not previously in the `ConfigSpec`-sourc
 
 ## §7. `ConfigSpec` real-world usage — findings, not a full survey
 
-`vmclass-v2-design.md` §6.2 calls for "a survey of real-world `configSpec` usage" before choosing a migration branch. From this repo, the best available proxy is `docs/concepts/workloads/vm-class.md`'s documented `configSpec` examples, plus the shipped class fixtures:
+`vmclass-v2-design.md` §6.2 calls for "a survey of real-world `configSpec` usage" to decide which leftover fields to elevate first. From this repo, the best available proxy is `docs/concepts/workloads/vm-class.md`'s documented `configSpec` examples, plus the shipped class fixtures:
 
 - **Shipped fixtures (`config/virtualmachineclasses/*.yaml`) set no `configSpec` at all** — every t-shirt-size example (`guaranteed-large`, `best-effort-*`, etc.) only ever sets `hardware.{cpus,memory}` and `policies.resources.requests.{cpu,memory}`. Zero evidence of `configSpec` usage in-repo beyond documentation.
 - **`docs/concepts/workloads/vm-class.md`'s documented examples use exactly:** `numCPUs`, `memoryMB`, `firmware` (`"efi"`), `extraConfig` (as `[]OptionValue`), and `deviceChange` for two device kinds — vGPU (`VirtualPCIPassthroughVmiopBackingInfo`, e.g. `vgpu: "grid_v100d-4q"`) and Dynamic DirectPath I/O (`VirtualPCIPassthroughDynamicBackingInfo` with `allowedDevice[].{vendorId,deviceId}`). All five are already accounted for in `vmclass-v2-full-schema.md`.
 - **One finding worth surfacing directly:** the documented "large, NUMA-tuned" example (`vm-class.md`, ~line 352) sets `numa.nodeAffinity` and `numa.vcpu.preferHT` **through `extraConfig`**, not through any first-class field — i.e., there is a real, documented, customer-facing use case for NUMA tuning today, and it's being done entirely via the `extraConfig` long-tail fallback rather than a typed field. `VirtualMachineSpec` already has a first-class inline twin for this on the VM side (`spec.pnumaNodeAffinity []int32`), so per §1's rule this is a real elevation candidate for v2 (`hardware.pnumaNodeAffinity` or similar), not something to leave permanently in `extraConfig` just because that's how it's done today.
 
-**Caveat, stated plainly:** this is documentation- and fixture-level evidence from this checkout, not the production-usage telemetry `configSpec` survey §6.2 actually calls for (real, currently-deployed customer classes' `configSpec` content, which lives in wcpsvc/VC data this session has no access to). Treat the findings above as "what's demonstrated as supported and documented," not as "everything real customers currently rely on" — the real survey against production data should still happen before finalizing which fields need day-one typed coverage versus can be deferred.
+**Caveat, stated plainly:** this is documentation- and fixture-level evidence from this checkout, not the production-usage telemetry `configSpec` survey §6.2 actually calls for (real, currently-deployed customer classes' `configSpec` content, which lives in wcpsvc/VC data this session has no access to). Treat the findings above as "what's demonstrated as supported and documented," not as "everything real customers currently rely on" — the real survey against production data should still happen before finalizing which fields need day-one typed coverage versus can stay in the leftover `configSpec`.
 
 ---
 

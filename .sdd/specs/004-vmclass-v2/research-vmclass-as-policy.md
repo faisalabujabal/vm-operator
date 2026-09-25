@@ -174,6 +174,8 @@ An explicit `default` matters for genuinely ranged classes: a user selecting `fl
 
 A merged object requires every governed field to express both a value and a constraint. That is impossible for an opaque blob: there is no coherent intersection of two arbitrary `vim.vm.ConfigSpec` values. Unification is therefore not coherent while `configSpec` remains a governed surface.
 
+*(Superseded in design review, 2026-09: `configSpec` is kept, narrowed to fields with no typed home, for presets only and never as a governed surface — see [`vmclass-v2-design.md`](./vmclass-v2-design.md) §2.1. The reasoning below still explains why it can't be a governed surface.)*
+
 **Decision: `configSpec` is not carried as an opaque, privileged escape hatch. It is not supported at all in that form.** Every field a class or a VM may set must be an explicit, typed field in the API. When vSphere's `VirtualMachineConfigSpec` introduces a field this platform wants to support, that field is added as a typed field before it can be used — there is no bypass for privileged accounts and no residual blob carrying anything else.
 
 This is a stronger and cleaner position than demoting the escape hatch, and it removes the ambiguity a privileged-only blob would otherwise carry (is a privileged user's opaque `configSpec` inside or outside the envelope?). It has a precedent already in this repository: the `ConfigTarget` / `VirtualMachineConfigOptions` discovery pipeline already enumerates the vSphere configuration surface field-by-field rather than passing any of it through opaquely, so a closed, explicitly-typed surface is the direction this platform is already moving in, not a new posture invented for this proposal.
@@ -324,6 +326,54 @@ References are to `vmware-tanzu/vm-operator` at the time of writing. Findings ab
 | Epic vmop-3331 names classless VMs | `.sdd/specs/001-class-policy-resize/tds.md:4` |
 | vmop-3388 compute surface serves classless / Telco workloads | `003-compute-config-reconcile/spec.md:15,58` (branch `compute-config-reconcile`) |
 | Reserved profile slots are per-zone counts | `api/v1alpha6/virtualmachineclass_types.go:159-169`; `api/v1alpha6/virtualmachinereservedprofile_types.go` |
+
+---
+
+## Appendix C — Design history of `vmclass-v2-design.md`
+
+`vmclass-v2-design.md` states the design as decided. This appendix keeps the positions it moved away from, and why, so the reasoning is available if any of them is reconsidered.
+
+### C1 — `spec.zones` as an always-explicit list
+
+An earlier version required `spec.zones` to always be an explicit, non-empty list: absent or empty meant "available and governing nowhere," and migration had to backfill every existing class with its namespace's full zone list. The reason was drift: if absent meant "all zones," a class's applicability would change whenever a zone was added to or removed from the namespace, with no edit to the class — treated as the same class of bug as letting `status.zones` feed governance.
+
+It was replaced by three states (unset = all zones including future ones, `[]` = none, a list). Adding a zone to a namespace is an explicit admin action, not ambient computed state; unset-means-all is today's behavior, so no backfill is needed; and `[]` makes "none" expressible. The backfill design also required the namespace vAPI change to land before migration; with three states, the migration needs nothing from it.
+
+An alternative default for an unset `governs.zones` — "all namespace zones, regardless of availability" — was considered, because it would have allowed a governance-only class (`spec.zones: []`) that no class chooser lists. It was rejected: a class can only govern where it is available, so `governs.zones` stays within `spec.zones` and an unset value follows it.
+
+### C2 — Removing `configSpec`, and the three migration branches
+
+An earlier version carried no `configSpec` at all in v2 (§6.1 above), which made migration the hard blocker: a class using `configSpec` for a field with no typed equivalent had no v2 representation. Three branches were considered, pending a production usage survey:
+
+1. **Keep existing values frozen** — a migrated class keeps what it expressed through `configSpec`, readable but not editable, until a typed equivalent exists; new classes can't use it.
+2. **Block on field parity** — don't ship v2 until every `configSpec` construct in the installed base has a typed replacement.
+3. **Accept breakage** — some existing classes must be re-authored; migration reports which.
+
+The sequencing ended with a release that removed `configSpec`. This was replaced by a leftover-only `configSpec` (fields with no typed home, presets only, never governance), which removes the blocker: the migration elevates what it can and leaves the rest, so no class breaks. The survey now decides which fields to elevate first.
+
+### C3 — Group placement as a separate gap
+
+An earlier version treated `VirtualMachineGroup` placement as needing its own governance design. Once governance became a post-placement detection-and-enforcement layer (the VM reconciler re-checking compliance once the zone is known), group membership stopped mattering: each VM is checked on its own class and zone.
+
+### C4 — Caller-dependent rejection detail
+
+An earlier version varied the detail in admission error messages by a `SubjectAccessReview` against whatever the message would name. It was replaced by one rule (generic about anything the caller didn't supply, specific about the caller's own input), since a caller-dependent message is one more thing to get wrong.
+
+### C5 — One `scope` field for identity and hierarchy
+
+An earlier version bundled VC-side identity partitioning and hierarchical governance under one `scope` field with a `Provider`/`Tenant` kind. They were split into `spec.externalID` and `parentClassRefs`, because the two concerns are unrelated and Supervisor has no provider/tenant concept.
+
+### C6 — Deleting a referenced class
+
+For `parentClassRefs`, deletion of a referenced class went through two earlier positions: disassociation (clearing references on the referencing classes), then a blocking finalizer. Both were replaced by unblocked deletion, matching how `VirtualMachineClass` deletion works today and avoiding namespaces stuck in `Terminating`.
+
+### C7 — Cross-namespace owner references
+
+Owner references were first ruled out because cross-namespace owner references don't fire. After hierarchy became same-namespace only, that objection no longer applied; they remain unused because cascade-delete is the wrong semantic.
+
+### C8 — A single class write path
+
+An earlier version said wcpsvc's service account was the only production writer of `VirtualMachineClass` objects. There are two: wcpsvc, and wcp-namespace-operator on etcd-backed Supervisors, which copies classes from the `vmware-system-vmop` catalog namespace into each namespace (through v1alpha1, copying only `Spec`).
 
 ---
 

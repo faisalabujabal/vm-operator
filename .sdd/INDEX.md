@@ -33,6 +33,7 @@ Each spec lives under `specs/NNN-slug/`. Standard artifacts: `spec.md` (behavior
 | 000 | [sdd](specs/000-sdd/) | VM Operator Specification Driven Development | In Progress | vmop-3820 |
 | 001 | [class-policy-resize](specs/001-class-policy-resize/) | VM Service Class Policy and Resize — Policy + Environment Browser Pipeline (incl. [`tds.md`](specs/001-class-policy-resize/tds.md) — technical + test design) | In Progress | vmop-3331 |
 | 002 | [vm-extraconfig-reconcile](specs/002-vm-extraconfig-reconcile/) | VM ExtraConfig Reconciliation — E2E Coverage (`spec.md`/`plan.md` pending) | In Progress | vmop-3782 |
+| 004 | [vmclass-v2](specs/004-vmclass-v2/) | `VirtualMachineClass` v2 — range-based classes, `governs`, `externalID`; replaces `VirtualMachineConfigPolicy` (design stage: design, one-pager, value types, vAPI/storage; `spec.md`/`plan.md`/`tasks.md` pending) | Design | vmop-3736 |
 | 003 | [configtarget-sriov-per-host](specs/003-configtarget-sriov-per-host/) | ConfigTarget Per-Host SR-IOV Enrichment — implementation plan for spec 001's Story S10 design; **deferred to a future release** | Not started | TBD (vmop-3926) |
 
 ### Finding the right spec

@@ -1,12 +1,12 @@
 # Worklist: `VirtualMachineConfigSpec` field-by-field elevation decisions
 
-- **Status**: Draft worklist — decision-ready inputs, not a final schema
-- **Companion to**: [`vmclass-v2-design.md`](./vmclass-v2-design.md), whose §6.2 migration blocker this informs, and [`research-vmclass-as-policy.md`](./research-vmclass-as-policy.md)
+- **Status**: Draft worklist — field-by-field inputs to the v2 schema
+- **Companion to**: [`vmclass-v2-design.md`](./vmclass-v2-design.md), whose §2.1 and §6.2 this informs, and [`research-vmclass-as-policy.md`](./research-vmclass-as-policy.md)
 - **Audience**: principal engineers, architecture review
 
 ## Purpose
 
-`vmclass-v2-design.md` §6.2 identifies the hard migration blocker: v2 carries no opaque `configSpec` field, so every field a shipped `VirtualMachineClass` today expresses through `configSpec` needs either a typed home in the new schema or an explicit decision not to carry it forward. This document works that blocker field-by-field.
+`vmclass-v2-design.md` §2.1 keeps a leftover-only `configSpec`: fields with a typed home in v2 are elevated out of it, and everything else stays in it for presets only. This document decides, field by field, which `VirtualMachineConfigSpec` fields get a typed home in v2 (*Elevate*), which stay in the leftover `configSpec` for now (*Defer*), and which are not a class-level concern (*Never*). The migration (design §6.2) uses the *Elevate* rows.
 
 `VirtualMachineConfigSpec` is a public vSphere API type (`vim25/types.VirtualMachineConfigSpec` in govmomi), not something internal or `tera`-specific. The VMODL2 interface `VirtualMachineClasses` (already reviewed this session) confirms this directly — its `configSpec` field is declared `@Vmodl1Type(name="VirtualMachineConfigSpec")`, i.e. a pointer at this same public type, not a redefinition of it. wcpsvc's vmclass write path only *references* this type when passing `configSpec` through opaquely; it does not define its own schema for it. The struct enumerated below has 78 fields.
 

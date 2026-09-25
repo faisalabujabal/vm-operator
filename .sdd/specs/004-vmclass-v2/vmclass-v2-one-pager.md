@@ -52,6 +52,61 @@ There is one kind, `VirtualMachineClass`. Its **availability** (`spec.zones`) is
 
 Availability limits both roles: a class can't be selected, and can't govern, in a zone it isn't available in. A class like `large` can be an ordinary t-shirt size *and* the ceiling every VM in a zone is measured against, just by also setting `governs`.
 
+**What it looks like.** An illustrative sample, not every field:
+
+```yaml
+# A t-shirt size that is also the ceiling for its zones.
+apiVersion: vmoperator.vmware.com/v1alpha7
+kind: VirtualMachineClass
+metadata:
+  name: large                  # what VMs reference in spec.className
+  namespace: team-a
+spec:
+  description: "Large general-purpose"
+  externalID: "org-1234-large" # VC-side identity, immutable
+  zones: [zone-a, zone-b]      # availability; unset = every zone
+  hardware:
+    cpus:
+      min: 4
+      max: 16
+      default: 8               # starting size for VMs using this class
+    memory:
+      min: 16Gi
+      max: 64Gi                # default omitted -> min (16Gi)
+    devices:
+      vgpuDevices:
+        allowed: ["grid_v100d-4q"]
+  extraConfig:
+    denied:
+      - {type: Glob, key: "guestinfo.*"}
+  configSpec: {}               # only fields with no typed home; presets only
+  governs:                     # makes this class a ceiling
+    zones: [zone-a]            # unset = same as spec.zones
+    enforcement: Deny
+    existingVMs: AllowOnViolation   # or DenyPowerOn
+status:
+  zones: [zone-a, zone-b]      # zones with compatible hardware right now
+---
+# A fixed size: min only, so max = default = min.
+apiVersion: vmoperator.vmware.com/v1alpha7
+kind: VirtualMachineClass
+metadata: {name: small, namespace: team-a}
+spec:
+  hardware:
+    cpus: {min: 2}
+    memory: {min: 4Gi}
+---
+# Phase 2: a tenant class bounded by a provider class.
+apiVersion: vmoperator.vmware.com/v1alpha7
+kind: VirtualMachineClass
+metadata: {name: tenant-medium, namespace: team-a}
+spec:
+  parentClassRefs:
+    - name: large              # must fit inside large's ranges
+  hardware:
+    cpus: {min: 4, max: 8}     # memory not declared -> large's range applies
+```
+
 **Ranges and defaults.** Every sized field becomes `{min, max, default}`. `max` and `default` default to `min`, so a class that sets only `min` is exactly today's fixed t-shirt size; there is no separate "fixed vs. ranged" flag. If a constraint is set, the class always has a `default`, so a VM never falls back to an unknown vpxd default that could violate the range.
 
 **Governance** is resolved **live, per field, at every VM admission** — including a VM that only sets `className` — never by merging or caching an intersected ceiling. A governing class also bounds every other class in its namespace the same way (a narrower size can't be authored wider than the ceiling next to it). In Phase 1, if two governing classes constrain the same field for a VM, the VM is rejected, naming both (Phase 2 relaxes this; see below). Deleting a governing class is allowed; its ceiling just stops applying.

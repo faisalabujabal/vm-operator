@@ -62,6 +62,20 @@ How the table changes:
 
 ### 2.3 CRD writers
 
+
+```mermaid
+flowchart LR
+  V1["Existing class API<br/>(adapter)"] --> W[wcpsvc]
+  V2["New v2 class API<br/>(generated)"] --> W
+  NS["Namespace API<br/>(per-class zones)"] --> W
+  W --> DB[(vcdb)]
+  W -- "legacy Supervisors" --> CR["VirtualMachineClass<br/>in each namespace"]
+  W -- "etcd-backed" --> CAT["Catalog namespace<br/>vmware-system-vmop"]
+  CAT --> NSOP[wcp-namespace-operator]
+  NSOP --> CR
+  CR --> VMOP["vm-operator<br/>webhooks + controllers"]
+```
+
 There are two:
 
 1. **wcpsvc** (`vmclass/vmclass_controller.go`, `ensureVMClassCRInCluster`): `ctrlutil.CreateOrUpdate` of a **v1alpha1** object built by `copyIntoKubeObject` (`vmclass/vmclass_kube.go`), which replaces `Spec.Hardware` wholesale. The vAPI call returns before this runs; failures land in the class's `Info.messages`. After a component upgrade, `syncAllNamespaces` (`workload/workload_sync.go`) re-drives these writes, through the same v1alpha1 writer.

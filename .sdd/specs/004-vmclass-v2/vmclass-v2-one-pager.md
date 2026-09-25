@@ -52,6 +52,12 @@ There is one kind, `VirtualMachineClass`. Its **availability** (`spec.zones`) is
 
 Availability limits both roles: a class can't be selected, and can't govern, in a zone it isn't available in. A class like `large` can be an ordinary t-shirt size *and* the ceiling every VM in a zone is measured against, just by also setting `governs`.
 
+```mermaid
+flowchart LR
+  A["Availability<br/>spec.zones"] --> S["Selectable<br/>VMs use it by name"]
+  A --> G["Governing<br/>ceiling on VMs<br/>spec.governs"]
+```
+
 **What it looks like.** An illustrative sample, not every field:
 
 ```yaml
@@ -123,11 +129,40 @@ A class can only govern where it is available. Unset-means-all is exactly today'
 
 **Unplaced VMs.** A VM's zone can be unknown at admission. Admission does a cheap, fail-fast check ("is there any zone this VM could be compliant in"), and the VM's reconcile loop enforces compliance once a zone is known — the same for single VMs and VM groups. Enforcement is never destructive: vm-operator never changes a VM's power state for compliance reasons; the strictest knob (`DenyPowerOn`) only declines a *user-requested* power-on while the VM is non-compliant.
 
+```mermaid
+flowchart TD
+  V[VM created or edited] --> Z{Zone known?}
+  Z -- yes --> C["Check against that zone's<br/>governing class and hardware"]
+  Z -- no --> E["Is there at least one zone<br/>it could be compliant in?"]
+  C -- fails --> R[Reject]
+  E -- no --> R
+  C -- passes --> A[Admit]
+  E -- yes --> A
+  A --> P["Placement picks a zone<br/>(governance-unaware)"]
+  P --> K[Reconciler re-checks compliance]
+  K -- non-compliant --> D["AllowOnViolation: condition<br/>DenyPowerOn: block power-on"]
+```
+
 **`configSpec`** keeps only fields vpxd supports that have no typed field yet. It is used for presets and defaults only, never as a governance ceiling; typed fields always win and are never merged with it; a field that has been elevated is not accepted in it. Each later elevation is a small migration.
 
 **Identity.** `spec.externalID` holds VC's identifier, immutable after create. `metadata.name` (what VMs reference) and `description` (free text) are separate fields. Existing classes keep their name and get `externalID` = name; only new classes can have a different name. VCFA remains responsible for `externalID` uniqueness, as today.
 
 ## The vCenter side
+
+How class data flows from the vCenter APIs to the objects vm-operator acts on:
+
+```mermaid
+flowchart LR
+  V1["Existing class API<br/>(adapter)"] --> W[wcpsvc]
+  V2["New v2 class API<br/>(generated)"] --> W
+  NS["Namespace API<br/>(per-class zones)"] --> W
+  W --> DB[(vcdb)]
+  W -- "legacy Supervisors" --> CR["VirtualMachineClass<br/>in each namespace"]
+  W -- "etcd-backed" --> CAT["Catalog namespace<br/>vmware-system-vmop"]
+  CAT --> NSOP[wcp-namespace-operator]
+  NSOP --> CR
+  CR --> VMOP["vm-operator<br/>webhooks + controllers"]
+```
 
 - **vcdb stays the store** for class definitions: a class exists in vCenter independently of any Supervisor. The changes:
 

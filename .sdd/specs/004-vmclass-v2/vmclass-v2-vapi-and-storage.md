@@ -24,6 +24,7 @@ The design doc describes what a `VirtualMachineClass` v2 object means inside a S
 | D10 | Enums: vmodl enums are preferred; the fallback is a `String` with the allowed values documented and a generated handler check. | §5.3 |
 | D11 | `@Released` is required on the generated vmodl. | §5.3 |
 | D12 | Both CRD writers (wcpsvc and wcp-namespace-operator) move to the new CRD version, and the version is chosen per Supervisor. | §6 |
+| D13 | vcdb changes are additive only: no column is dropped or renamed, and no existing column changes shape. Columns the design no longer reads stay in place. | §3.1 |
 
 ---
 
@@ -46,7 +47,7 @@ How the table changes:
 
 - **Schema:** GORM `AutoMigrate(&DBConfig{})` at startup (`InitializeDB`). It only adds.
 - **Reads and writes do not use GORM.** They are hand-written SQL statements with fixed column lists (`vmClassCfgQueryAll`, `vmClassCfgInsert`, `vmClassCfgUpdate`, ...). Adding a column means changing `DBConfig` **and** every statement; a statement that is missed silently leaves the column stale.
-- **Columns can be dropped.** wcpsvc already does it with explicit DDL: `dropSingleMasterDbColumns`, `dropVMCDRsDbColumns` and the `dropColumns` helper in `kubelifecycle/kube_instance_db.go`; `DROP COLUMN IF EXISTS cluster` in `kubelifecycle/storage_policy_db.go`; and a move-then-drop sequence (`clusteredResourcesMigrateQueryStmt`, then dropping `workloads_res_pool` and `master_cluster_module_id`).
+- **Columns can be dropped** (not used by this design — see D13). wcpsvc already does it with explicit DDL: `dropSingleMasterDbColumns`, `dropVMCDRsDbColumns` and the `dropColumns` helper in `kubelifecycle/kube_instance_db.go`; `DROP COLUMN IF EXISTS cluster` in `kubelifecycle/storage_policy_db.go`; and a move-then-drop sequence (`clusteredResourcesMigrateQueryStmt`, then dropping `workloads_res_pool` and `master_cluster_module_id`).
 - **Data migrations** run in `vmclass.Initialize()` behind a feature flag. Precedent: `migrateVMClassesToConfigSpecNoLock`, which is idempotent (`WHERE config_spec IS NULL`). Its iterator stops at the first failing row, and the caller calls `log.StdLog.Fatalf`, so a single bad row puts wcpsvc into a crash loop.
 - **Existing consistency rule:** wcpsvc does not copy `cpu_count` into the blob's `NumCPUs`, but it **rejects** a create or update where they disagree (`vmclass_validate.go`, `VCenterWCPVMClassConfigSpecCPUCountInvalid` / `...MemoryMBInvalid`).
 - **Existing dual representation:** `migrateCreateSpecForClassAsConfig` / `migrateUpdateSpecForClassAsConfig` (`vmclass_configspec.go`) keep the typed `devices`, `instanceStorage` and reservation fields and the blob's `DeviceChange`/allocations in sync in both directions. That is about 200 lines under a `gocyclo` nolint for three field groups; it is the cost estimate for any hand-written translation between shapes.
@@ -80,13 +81,15 @@ Consequences for v2: every new field is lost at each of these hops unless the wr
 |---|---|---|
 | `vm_class_class_configs` | **One new JSONB column** (name TBD, e.g. `spec_v2`) | The class-wide part of the v2 spec, CRD-shaped: `hardware` ranges `{min, max, default}`; `policies.resources` ranges (absolute values); the typed hardware fields elevated from `configSpec`; `devices` and `extraConfig` as list policies (`entries`/`allowed`/`denied`); the leftover `configSpec`; the class-wide `governs` settings (`enforcement`, `existingVMs`); `externalID`. Also internal bookkeeping inside the document: a document schema version and the elevation level (open item O7). |
 | `vm_class_class_configs` | Possibly a scalar `external_id` column | Only if wcpsvc or VCFA need to look classes up or index by it. Open (O9). |
-| `workload` (`vm_classes`) | **No new column; the JSONB shape changes** from `["a", "b"]` to `[{"name": "a", "zones": ..., "governedZones": ...}]` | The per-namespace association (§4.4). Read with a decoder that accepts both shapes; always written in the new shape. |
+| `workload` | **One new JSONB column** (name TBD, e.g. `vm_class_specs`) | Per-class `zones` and `governedZones` for the association (§4.4). `vm_classes` is unchanged and remains the list of attached class names; a class with no entry in the new column means all zones. |
+
+**Additive only (D13).** Changing the shape of an existing column is as breaking as dropping it: an older wcpsvc unmarshals `vm_classes` into a list of strings, and on a value it can't read it fails to load that namespace (`workload/workload_impl.go`, "Error reading attachedVMClasses"). The same applies to anything else that reads these columns. So existing columns keep their meaning and shape, and new data goes in new columns. `config_spec` keeps being written as a derived copy; `config_spec_xml_b64` stays as it is.
 
 Not stored on the class row: `zones` and `governs.zones` (per namespace, in the association); `reservedProfileID` and `reservedSlots` (derived from the capacity store); `status`.
 
 ### 3.2 The old columns become derived copies
 
-The new document is canonical. `cpu_count`, `memory_mb`, the reservation percentages and `devices` (as the v1 `entries` view) are **derived from it and written in the same statement by one write function**. Every path that writes the row must go through that function: the INSERT/UPDATE statements, `addDefaultClasses`, and every migration.
+The new document is canonical. `cpu_count`, `memory_mb`, the reservation percentages, `devices` (as the v1 `entries` view) and `config_spec` (the full blob the v1 API returns) are **derived from it and written in the same statement by one write function**. Every path that writes the row must go through that function: the INSERT/UPDATE statements, `addDefaultClasses`, and every migration.
 
 They are not only for v1 reads. Their consumers are:
 
@@ -125,7 +128,7 @@ The v2 spec carries absolute request values. The percentage columns are computed
 | Schema, SQL statements, catalog mapping | a few days |
 | Extraction migration and tests | 1–2 weeks |
 | Moving both CRD writers to the new version | 1–2 weeks |
-| Association shape change (legacy and etcd paths) | 1–2 weeks |
+| Association zones column and the etcd-path equivalent | 1–2 weeks |
 | v1 adapter over the new document | several weeks; the largest item |
 
 Not included: the v2 vmodl and handler (§5), the capability gate.
@@ -331,7 +334,6 @@ Supervisor 2.0 keeps per-Supervisor etcd as the source of truth; wcpsvc keeps a 
 - **O5.** `Quantity` mapping: `String` (lossless, generic) vs. unit-typed `Long` (vSphere convention).
 - **O6.** Where the generator lives and who owns it. vmodl is internal (tera) and the CRD is public (vm-operator); proposal: tool and output in tera, input from the vm-operator `api` module version pinned in wcpsvc's `go.mod`, regenerated on bump, with the completeness and baseline checks in CI.
 - **O7.** The elevation registry: one table (ConfigSpec path ↔ typed path + converter) driving the webhook, the vcdb migration (per-row elevation level), the v1 projection, the overlap check and the vmodl. wcpsvc elevates VC-managed classes; the webhook elevates Kubernetes-authored ones; elevation is tied to the target CRD version.
-- **O8.** Old-column cleanup: which columns to drop (`config_spec_xml_b64` now; `config_spec` once every row is migrated and the v1 adapter builds it from the document), and in which release.
 - **O9.** Whether `externalID` needs its own indexed column.
 - **O10.** The `VirtualMachineClass` writer on Supervisor 2.0.
 - **O11.** Uniqueness scope of the v2 `name` field: vCenter-wide (simplest; checked at create) or only among classes attached to the same namespace (checked at association time).

@@ -467,7 +467,7 @@ The vCenter-facing authoring path follows the same rule: the new v2 class vAPI h
 
 ## 7. Open items
 
-vCenter-side items (vcdb, vAPI, generator) are in [`vmclass-v2-vapi-and-storage.md`](./vmclass-v2-vapi-and-storage.md) §8 (O1, O3–O11) and not repeated here.
+vCenter-side items (vcdb, vAPI, generator) are in [`vmclass-v2-vapi-and-storage.md`](./vmclass-v2-vapi-and-storage.md) §8 and not repeated here.
 
 ### Phase 1
 

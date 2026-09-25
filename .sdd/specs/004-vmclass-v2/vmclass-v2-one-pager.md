@@ -137,12 +137,12 @@ A class can only govern where it is available. Unset-means-all is exactly today'
   | `vm_class_class_configs` | `cpu_count`, `memory_mb` | **Derived** | Written from the canonical `default`; kept for the existing API and Supervisors not yet on the new CRD version |
   | `vm_class_class_configs` | `cpu_reservation`, `memory_reservation` | **Derived** | Percentages computed from the canonical absolute requests |
   | `vm_class_class_configs` | `devices` | **Derived** | The existing API's view of the device `entries` |
-  | `vm_class_class_configs` | `config_spec` | **Superseded** | Read once by the migration; afterwards the existing API builds `configSpec` from the new column. Dropped in a later release |
-  | `vm_class_class_configs` | `config_spec_xml_b64` | **To drop** | Unused since vSphere 8.0 |
+  | `vm_class_class_configs` | `config_spec` | **Kept, no longer canonical** | Read by the migration; afterwards written as a derived copy for the existing API and older readers |
   | `vm_class_class_configs` | `external_id` | **Maybe** | Only if something needs to look classes up by `externalID` (open) |
-  | `workload` | `vm_classes` | **Shape change** | From a list of class names to per-class entries with `zones` and `governedZones`; old rows still read |
+  | `workload` | `vm_classes` | **Unchanged** | Still the list of attached class names |
+  | `workload` | new JSONB column (name TBD, e.g. `vm_class_specs`) | **Added** | Per-class `zones` and `governedZones`. A class with no entry here means all zones, today's behavior |
 
-  All derived columns are written by one function in the same statement as the new column, so they can't drift. Zones and reservations are not stored on the class row; they belong to the namespace association.
+  **All changes are additive:** no column is dropped or renamed, and no existing column changes shape, so an older wcpsvc can still read every row. All derived columns are written by one function in the same statement as the new column, so they can't drift. Zones and reservations are not stored on the class row; they belong to the namespace association.
 - **A new v2 class vAPI**, generated at build time (reviewed and committed, not produced at runtime), over the same vcdb row as the existing `VirtualMachineClasses` API. The vmodl is generated from the CRD's Go types: a small tool emits a complete OpenAPI document from them, and the vAPI team's existing `openapi-compiler` turns that into vmodl. The CRD's own OpenAPI schema isn't used directly because it loses type information vmodl needs. This route depends on the vAPI team adding support for a few vmodl annotations; if they can't, the tool writes vmodl directly. The existing API stays, as an adapter: it shows `default` for ranged fields and translates `configSpec` in both directions. Both are gated by a wcpsvc capability, which works because wcpsvc upgrades before Supervisors.
 - **The namespace vAPI change is additive.** A new per-class list carries zones; the existing `vmClasses` field keeps today's behavior (all zones, no governance).
 - **Both class writers move to the new CRD version** — wcpsvc, and wcp-namespace-operator on etcd-backed Supervisors — with the version chosen per Supervisor, since one vCenter can manage Supervisors on different versions.

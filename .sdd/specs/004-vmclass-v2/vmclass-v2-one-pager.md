@@ -6,6 +6,17 @@
 
 ---
 
+## Phasing at a glance
+
+| | Phase 1 — release 9.1.3 | Phase 2 — release 9.2 |
+|---|---|---|
+| Theme | One kind for presets and governance | Tenant-based VM classes |
+| Kubernetes API | Range fields, `governs`, three-state zones, `externalID`, narrowed `configSpec`; `VirtualMachineConfigPolicy` removed | `parentClassRefs` (schema field reserved in Phase 1, behavior ships here) |
+| Governance | One governing class per field per zone | Class hierarchies within a namespace; several classes governing one zone |
+| vCenter side | vcdb column and migration, generated v2 class vAPI, namespace API zones, both class writers upgraded | Confirm `parentClassRefs` round-trips through the generated vAPI |
+
+Phase 1 is designed so Phase 2 needs no breaking change.
+
 ## Business problem
 
 VM sizing and configuration policy today is split across mechanisms that don't compose:
@@ -34,23 +45,23 @@ VM sizing and configuration policy today is split across mechanisms that don't c
 
 ## Big picture
 
-There is one kind, `VirtualMachineClass`, with two independent, optional properties:
+There is one kind, `VirtualMachineClass`. Its **availability** (`spec.zones`) is the base: the zones where the class applies at all. Within those zones it can play two independent roles, either or both:
 
-- **Selectable** — can a VM reference this class by name?
-- **Governing** — do this class's constraints act as a ceiling on VMs in some zones (via an optional `spec.governs` block), regardless of what those VMs reference?
+- **Selectable** — a VM can reference the class by name.
+- **Governing** — the class's constraints act as a ceiling on VMs (via an optional `spec.governs` block), regardless of what those VMs reference.
 
-A class like `large` can be an ordinary t-shirt size *and* the ceiling every VM in a zone is measured against, just by also setting `governs`.
+Availability limits both roles: a class can't be selected, and can't govern, in a zone it isn't available in. A class like `large` can be an ordinary t-shirt size *and* the ceiling every VM in a zone is measured against, just by also setting `governs`.
 
 **Ranges and defaults.** Every sized field becomes `{min, max, default}`. `max` and `default` default to `min`, so a class that sets only `min` is exactly today's fixed t-shirt size; there is no separate "fixed vs. ranged" flag. If a constraint is set, the class always has a `default`, so a VM never falls back to an unknown vpxd default that could violate the range.
 
-**Governance** is resolved **live, per field, at every VM admission** — including a VM that only sets `className` — never by merging or caching an intersected ceiling. A governing class also bounds every other class in its namespace the same way (a narrower size can't be authored wider than the ceiling next to it). If two governing classes constrain the same field for a VM, the VM is rejected, naming both. Deleting a governing class is allowed; its ceiling just stops applying.
+**Governance** is resolved **live, per field, at every VM admission** — including a VM that only sets `className` — never by merging or caching an intersected ceiling. A governing class also bounds every other class in its namespace the same way (a narrower size can't be authored wider than the ceiling next to it). In Phase 1, if two governing classes constrain the same field for a VM, the VM is rejected, naming both (Phase 2 relaxes this; see below). Deleting a governing class is allowed; its ceiling just stops applying.
 
 **Zones** have three states, and come from the class's association with the namespace (one vCenter class is attached to many namespaces):
 
 | Value | `spec.zones` (availability) | `spec.governs.zones` (governance) |
 |---|---|---|
 | unset | Every zone of the namespace, including zones added later | Same as availability |
-| `[]` | Nowhere (attached, but not selectable) | Nothing |
+| `[]` | Nowhere (attached, but not selectable and governs nothing) | Nothing |
 | a list | Only those zones | Only those zones, within availability |
 
 A class can only govern where it is available. Unset-means-all is exactly today's behavior, so existing classes need no zone backfill.
@@ -75,6 +86,18 @@ A class can only govern where it is available. Unset-means-all is exactly today'
 - No zone backfill; no class sets `governs` until an admin adds it.
 - wcpsvc moves each class's `configSpec` fields that now have a typed home into those fields and leaves the rest in `configSpec`, so no existing class breaks. The migration runs per class and never stops wcpsvc.
 - `VirtualMachineConfigPolicy`, its CRD and the `Zone` fan-out are removed; there is no enforcement behavior to preserve.
+
+## Phase 2: tenant-based VM classes (release 9.2)
+
+Nothing here ships in Phase 1, but the Phase 1 schema is shaped for it.
+
+- **`parentClassRefs`.** A class can reference a higher-authority class (`spec.parentClassRefs: [{name: ...}]`). The parent bounds what the child may declare, and supplies the ceiling for any field the child doesn't declare. This lets a tenant admin subdivide an allocation a provider carved out for them, without any provider/tenant concept in vm-operator.
+- **Same namespace only.** Parent and child must be in the same namespace. Getting a provider's class into a tenant namespace is done by copying, as class distribution already works today, not by a cross-namespace reference.
+- **Checked once, resolved live.** When a child is created or edited, its declared ranges must fit inside the parent's, and the chain must have no cycles. At every VM admission, each field is resolved live by walking the chain until a class declares it — never cached.
+- **One parent per class, any depth.** Each class lists at most one parent (capped by the webhook, not the schema, so it can be lifted later); chains can be as long as needed.
+- **Deletion is never blocked.** Deleting a parent is allowed, as class deletion is today; fields that fell through to it simply become ungoverned for the child. VMs are unaffected, since they are pinned to a class snapshot.
+- **Several classes governing one zone.** A VM is allowed in a zone if it fully satisfies at least one class governing that zone; it can't combine one class's allowance with another's. Placement then picks among the zones that pass, as today.
+- **Why not owner references:** deleting a parent must not delete its children, and Kubernetes owner references can't express that.
 
 ## Architecture areas
 
@@ -114,7 +137,8 @@ Full lists: design doc §7 and vAPI/storage doc §8.
 - Generator details: the route (depends on the vAPI team), how `Quantity` maps to vmodl, and where the tool lives.
 
 **Phase 2 (9.2, tenant-based VM classes)**
-- When several classes govern one zone (a VM must fully satisfy at least one), whose `existingVMs` policy and `default` apply.
+- When several classes govern one zone, whose `existingVMs` policy applies to a VM that satisfies none of them, and whose `default` fills a classless VM.
+- Whether a governing class needs a way to forbid a non-empty `configSpec` in tenant-authored classes, since governance can't bound its contents.
 - Deletion symmetry for class-to-class and VM-to-class references; whether cycle-freedom alone is enough for `parentClassRefs` chains.
 
 ---

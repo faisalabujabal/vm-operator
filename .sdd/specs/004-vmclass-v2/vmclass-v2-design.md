@@ -28,10 +28,12 @@ Everywhere below, a cross-reference into §8 is a Phase 2 mechanism; everything 
 
 ## 1. Two independent properties on one kind
 
-A class carries two independent properties, and either or both can hold:
+A class's **availability** (`spec.zones`, §3.1) is the base: the zones of a namespace where the class applies at all. Within its available zones, a class can play two independent roles, either or both:
 
-- **Selectable** — can a VM reference this class by name in `spec.className`?
-- **Governing** — do this class's constraints act as a ceiling on VMs in some scope, regardless of what they reference? Expressed by an optional `spec.governs` block.
+- **Selectable** — a VM in one of those zones can reference this class by name in `spec.className`.
+- **Governing** — the class's constraints act as a ceiling on VMs in those zones (or a subset of them, `governs.zones`), regardless of what the VMs reference. Expressed by an optional `spec.governs` block.
+
+Availability therefore limits both roles: a class can't be selected, and can't govern, in a zone it isn't available in.
 
 `large` can be an ordinary, selectable t-shirt size *and* the ceiling every VM in a zone is measured against — not through a special mode, and not through a second object, but because it additionally sets `spec.governs`, while remaining exactly as selectable as `small` and `medium`, which do not set it.
 
@@ -107,7 +109,7 @@ status:
 
 ### 3.1 Shape and semantics
 
-`spec.zones` is top-level, not nested under `governs`, because it is meaningful with or without `governs`: it answers "where can this class be selected at all," independent of whether it also governs anything.
+`spec.zones` is top-level, not nested under `governs`, because it is meaningful with or without `governs`: it answers "where does this class apply at all" — where it can be selected, and the outer bound of where it can govern.
 
 ```yaml
 zones: [zone-a, zone-b]   # optional; unset = all namespace zones incl. future ones, [] = none, list = only these
@@ -122,7 +124,7 @@ governs:
 | Value | `spec.zones` (availability) | `spec.governs.zones` (governance) |
 |---|---|---|
 | unset | Available in every zone of the namespace, **including zones added later** | Governs exactly where the class is available (follows `spec.zones`, including its "all zones, live" meaning) |
-| `[]` | Available nowhere: attached to the namespace, but no new VM can select it | Governs nothing |
+| `[]` | Available nowhere: attached to the namespace, but no new VM can select it and it governs nothing | Governs nothing |
 | `[a, b]` | Only those zones | Only those zones, which must all be zones the class is available in |
 
 **A class can only govern where it is available.** `governs.zones` is always within `spec.zones`: unset means "the same as `spec.zones`", and a list is validated to be a subset of the zones the class is available in. So `spec.zones: []` with `governs: {}` governs nothing.

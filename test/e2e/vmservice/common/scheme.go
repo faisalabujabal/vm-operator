@@ -18,7 +18,7 @@ import (
 	vmopv1a2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmopv1a3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmopv1a5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
-	vmopv1a6 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	vmopv1a6 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	capv1 "github.com/vmware-tanzu/vm-operator/external/capabilities/api/v1alpha1"
 	imageregistryv1alpha1 "github.com/vmware-tanzu/vm-operator/external/image-registry-operator/api/v1alpha1"
 	imageregistryv1alpha2 "github.com/vmware-tanzu/vm-operator/external/image-registry-operator/api/v1alpha2"

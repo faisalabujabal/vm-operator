@@ -8,7 +8,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 
-	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/vmservice/computepolicies"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/vmservice/configpolicy"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/vmservice/devops"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/vmservice/viadmin"
@@ -246,30 +245,6 @@ var _ = Describe("Testing VM Services", Label("devops"), Label("viadmin"), Label
 				return configpolicy.SpecInput{
 					ClusterProxy:     svClusterProxy,
 					Config:           config,
-					WCPNamespaceName: wcpNamespaceName,
-				}
-			})
-		})
-
-		Context("VM-EVICTION-POLICY", func() {
-			computepolicies.Spec(context.TODO(), func() computepolicies.SpecInput {
-				return computepolicies.SpecInput{
-					ClusterProxy:     svClusterProxy,
-					Config:           config,
-					WCPClient:        wcpClient,
-					ArtifactFolder:   artifactFolder,
-					WCPNamespaceName: wcpNamespaceName,
-				}
-			})
-		})
-
-		Context("CONTROLLED-REBALANCING-POLICY", func() {
-			computepolicies.ControlledRebalancingSpec(context.TODO(), func() computepolicies.SpecInput {
-				return computepolicies.SpecInput{
-					ClusterProxy:     svClusterProxy,
-					Config:           config,
-					WCPClient:        wcpClient,
-					ArtifactFolder:   artifactFolder,
 					WCPNamespaceName: wcpNamespaceName,
 				}
 			})

@@ -51,16 +51,6 @@ const (
 	TelcoVMServiceAPICapabilityName          = "supports_telco_vm_service_api"
 	WorkloadIPv6CapabilityName               = "supports_workload_ipv6"
 
-	// VMEvictionCapabilityName gates the AutomaticVMEvictionPolicy and
-	// BestEffortRestartPolicy CRDs; must match
-	// pkg/config/capabilities.CapabilityKeyVMEviction.
-	VMEvictionCapabilityName = "supports_infrapolicy_vm_evacuation"
-
-	// ControlledRebalancingPolicyCapabilityName gates the
-	// ControlledRebalancingPolicy CRD; must match
-	// pkg/config/capabilities.CapabilityKeyControlledRebalancingPolicy.
-	ControlledRebalancingPolicyCapabilityName = "supports_infrapolicy_controlled_rebalancing"
-
 	// ExtensionCompatConstraintCapabilityName gates VM Operator registering
 	// extension-compatibility INVARIANT constraints on VMs it manages; must
 	// match pkg/config/capabilities.CapabilityKeyExtensionCompatConstraint.

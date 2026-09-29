@@ -404,7 +404,7 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 				ResourcePolicy:   clusterResources.VMResourcePolicyName,
 				PowerState:       poweredOnState,
 			}
-			vmYaml = manifestbuilders.GetVirtualMachineYamlA6(vmParameters)
+			vmYaml = manifestbuilders.GetVirtualMachineYamlA5(vmParameters)
 			Expect(clusterProxy.CreateWithArgs(ctx, vmYaml)).To(Succeed(), "failed to create virtualmachine:\n %s", string(vmYaml))
 			vmoperator.WaitForVirtualMachineCreation(ctx, config, svClusterClient, input.WCPNamespaceName, vmName)
 			vmoperator.WaitForVirtualMachinePowerState(ctx, config, svClusterClient, input.WCPNamespaceName, vmName, poweredOnState)
@@ -488,7 +488,7 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 			ResourcePolicy:   clusterResources.VMResourcePolicyName,
 			PowerState:       poweredOnState,
 		}
-		vmYaml = manifestbuilders.GetVirtualMachineYamlA6(vmParameters)
+		vmYaml = manifestbuilders.GetVirtualMachineYamlA5(vmParameters)
 		Expect(clusterProxy.CreateWithArgs(ctx, vmYaml)).To(Succeed(), "failed to create virtualmachine:\n %s", string(vmYaml))
 		vmoperator.WaitForVirtualMachineCreation(ctx, config, svClusterClient, input.WCPNamespaceName, vmName)
 

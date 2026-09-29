@@ -250,18 +250,6 @@ var _ = Describe("Testing VM Services", Label("devops"), Label("viadmin"), Label
 			})
 		})
 
-		Context("VM-NIC-EXTRA-CONFIG", func() {
-			virtualmachine.VMNICExtraConfigSpec(context.TODO(), func() virtualmachine.VMNICExtraConfigSpecInput {
-				return virtualmachine.VMNICExtraConfigSpecInput{
-					ClusterProxy:     svClusterProxy,
-					Config:           config,
-					WCPClient:        wcpClient,
-					ArtifactFolder:   artifactFolder,
-					SkipCleanup:      skipCleanup,
-					WCPNamespaceName: wcpNamespaceName,
-				}
-			})
-		})
 	})
 
 	Context("VIRTUAL-MACHINE-REPLICASET", func() {

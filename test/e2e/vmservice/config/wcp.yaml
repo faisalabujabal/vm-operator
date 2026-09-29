@@ -105,7 +105,6 @@ intervals:
   default/wait-pvc-attachment: ["5m", "10s"]
   default/wait-pvc-deletion: ["2m", "5s"]
   default/wait-jumpbox-sshpass-ready: ["30m", "10s"]
-  default/wait-vm-nic-extra-config-synced: ["5m", "10s"]
 
   # windows-sysprep overrides apply only to the Windows Sysprep spec.
   # Empirically, Sysprep GOSC on this image reliably reports an IP in

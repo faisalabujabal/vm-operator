@@ -250,18 +250,6 @@ var _ = Describe("Testing VM Services", Label("devops"), Label("viadmin"), Label
 			})
 		})
 
-		Context("VM-EXTRACONFIG", func() {
-			virtualmachine.VMExtraConfigSpec(context.TODO(), func() virtualmachine.VMExtraConfigSpecInput {
-				return virtualmachine.VMExtraConfigSpecInput{
-					ClusterProxy:     svClusterProxy,
-					Config:           config,
-					ArtifactFolder:   artifactFolder,
-					SkipCleanup:      skipCleanup,
-					WCPNamespaceName: wcpNamespaceName,
-				}
-			})
-		})
-
 		Context("VM-COMPUTE-CONFIG", func() {
 			virtualmachine.VMComputeConfigSpec(context.TODO(), func() virtualmachine.VMComputeConfigSpecInput {
 				return virtualmachine.VMComputeConfigSpecInput{

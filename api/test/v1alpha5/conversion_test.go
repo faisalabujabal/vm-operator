@@ -362,6 +362,33 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(restored.Spec.ReservedSlots).To(BeZero())
 			})
 
+			DescribeTable("preserves profile selection states through older clients",
+				func(policy *vmopv1.EnumPolicy) {
+					hub := classWithPolicies()
+					hub.Spec.ReservedProfileName = policy
+					spoke := version.newSpoke()
+					Expect(spoke.ConvertFrom(hub)).To(Succeed())
+					var restored vmopv1.VirtualMachineClass
+					Expect(spoke.ConvertTo(&restored)).To(Succeed())
+					Expect(restored.Spec).To(Equal(hub.Spec))
+				},
+				Entry("omitted policy", (*vmopv1.EnumPolicy)(nil)),
+				Entry("empty allowed list", &vmopv1.EnumPolicy{Allowed: &[]string{}}),
+				Entry("implicit single allowed profile", &vmopv1.EnumPolicy{Allowed: &[]string{"profile-a"}}),
+			)
+
+			It("honors an older writer clearing the profile without losing resource ranges", func() {
+				hub := classWithPolicies()
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				Expect(json.Unmarshal([]byte(`{"spec":{"reservedProfileID":""}}`), spoke)).To(Succeed())
+				var restored vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec.ReservedProfileName).To(BeNil())
+				Expect(restored.Spec.Resources).To(Equal(hub.Spec.Resources))
+				Expect(restored.Spec.ReservedSlots).To(Equal(hub.Spec.ReservedSlots))
+			})
+
 			It("preserves nil, explicit zero and empty list policy values", func() {
 				zero := resource.MustParse("0")
 				empty := []vmopv1.VGPUDevice{}

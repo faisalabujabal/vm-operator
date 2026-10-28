@@ -62,8 +62,8 @@ func CreateConfigSpec(
 		},
 	)
 
-	// Ensure ExtraConfig contains the VM Class's reservation profile ID if set.
-	if id := vmClassSpec.ReservedProfileID; id != "" {
+	// Ensure ExtraConfig contains the VM Class's reservation profile if set.
+	if id := vmopv1.ClassProfileDefault(vmClassSpec.ReservedProfileName); id != "" {
 		configSpec.ExtraConfig = util.OptionValues(configSpec.ExtraConfig).Merge(
 			&vimtypes.OptionValue{
 				Key:   constants.ExtraConfigReservedProfileID,

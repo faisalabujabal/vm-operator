@@ -317,7 +317,9 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(hub.Spec.Resources.Requests.Memory.Default.String()).To(Equal("1Gi"))
 				Expect(hub.Spec.Resources.Limits.CPU.Default.String()).To(Equal("4"))
 				Expect(hub.Spec.Resources.Limits.Memory.Default.String()).To(Equal("8Gi"))
-				Expect(hub.Spec.ReservedProfileID).To(Equal("profile-a"))
+				Expect(*hub.Spec.ReservedProfileName.Default).To(Equal("profile-a"))
+				Expect(*hub.Spec.ReservedProfileName.Allowed).To(Equal([]string{"profile-a"}))
+				Expect(*hub.Spec.ReservedProfileName.Required).To(BeTrue())
 				Expect(hub.Spec.ReservedSlots).To(BeZero())
 				Expect(hub.Spec.Hardware.Devices.VGPUDevices).To(Equal([]vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}))
 				Expect(hub.Spec.Hardware.Devices.DynamicDirectPathIODevices).To(Equal([]vmopv1.DynamicDirectPathIODevice{
@@ -354,7 +356,9 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(restored.Spec.Resources.Size.CPU.Max.String()).To(Equal("8"))
 				Expect(restored.Spec.Resources.Size.Memory).To(Equal(hub.Spec.Resources.Size.Memory))
 				Expect(restored.Spec.Hardware.Devices).To(Equal(hub.Spec.Hardware.Devices))
-				Expect(restored.Spec.ReservedProfileID).To(Equal("profile-b"))
+				Expect(*restored.Spec.ReservedProfileName.Default).To(Equal("profile-b"))
+				Expect(*restored.Spec.ReservedProfileName.Allowed).To(Equal([]string{"profile-b"}))
+				Expect(*restored.Spec.ReservedProfileName.Required).To(BeTrue())
 				Expect(restored.Spec.ReservedSlots).To(BeZero())
 			})
 
@@ -412,6 +416,9 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 func classWithPolicies() *vmopv1.VirtualMachineClass {
 	min, max, def := resource.MustParse("2"), resource.MustParse("16"), resource.MustParse("4")
 	memory := resource.MustParse("4Gi")
+	profile := "profile-a"
+	profiles := []string{"profile-a", "profile-b"}
+	required := true
 	devices := []vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}
 	return &vmopv1.VirtualMachineClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "class", Namespace: "tenant"},
@@ -420,9 +427,9 @@ func classWithPolicies() *vmopv1.VirtualMachineClass {
 				CPU:    &vmopv1.ResourceQuantityRange{Min: &min, Max: &max, Default: &def},
 				Memory: &vmopv1.ResourceQuantityRange{Default: &memory},
 			}},
-			Hardware:          vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: devices}},
-			ReservedProfileID: "profile-a",
-			ReservedSlots:     4,
+			Hardware:            vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: devices}},
+			ReservedProfileName: &vmopv1.EnumPolicy{Default: &profile, Allowed: &profiles, Required: &required},
+			ReservedSlots:       4,
 		},
 	}
 }

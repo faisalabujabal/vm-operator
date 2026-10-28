@@ -59,6 +59,7 @@ type vmClassUpgradeCheckpoint struct {
 	Phase             string   `json:"phase"`
 	ClassName         string   `json:"className"`
 	VMName            string   `json:"vmName"`
+	ProfileClassUID   string   `json:"profileClassUID"`
 	ClassUID          string   `json:"classUID"`
 	VMUID             string   `json:"vmUID"`
 	VMVCenterMOID     string   `json:"vmVCenterMOID"`
@@ -146,6 +147,16 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		checkpoint.ClassUID = string(legacyClass.UID)
 		Expect(checkpoint.ClassUID).NotTo(BeEmpty())
 
+		By("persisting a legacy namespace profile class without allocating capacity")
+		// This isolated API fixture exercises stored profile migration. It does
+		// not represent a provider allocation or attach a reserved profile to a VM.
+		profileClass := legacyClass.DeepCopy()
+		profileClass.ObjectMeta = metav1.ObjectMeta{Namespace: checkpoint.Namespace, Name: checkpoint.ClassName + "-profile"}
+		profileClass.Spec.ReservedProfileID = "upgrade-profile"
+		profileClass.Spec.ReservedSlots = 0
+		Expect(client.Create(ctx, profileClass)).To(Succeed())
+		checkpoint.ProfileClassUID = string(profileClass.UID)
+
 		By("creating an old API VirtualMachine with its resources omitted")
 		// Use only the baseline API while finding the existing namespace image;
 		// the old release does not serve the candidate's v1alpha6 image API.
@@ -230,6 +241,7 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 			err := input.WCPClient.UpdateNamespaceVMServiceSpec(checkpoint.Namespace, wcp.NamespaceUpdateVMserviceSpec{VMClasses: &checkpoint.OriginalVMClasses})
 			Expect(err).NotTo(HaveOccurred())
 			wcp.WaitForNamespaceReady(input.WCPClient, checkpoint.Namespace)
+			Expect(client.Delete(cleanupCtx, &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Namespace: checkpoint.Namespace, Name: checkpoint.ClassName + "-profile"}})).To(Succeed())
 			By("deleting the test VMClasses")
 			vmservice.VerifyVMClassDeletion(input.WCPClient, checkpoint.ClassName)
 			Expect(client.Delete(cleanupCtx, checkpointConfigMap)).To(Succeed())
@@ -243,6 +255,44 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(class.Spec.Resources.Size.CPU.Default).To(Equal(resource.NewQuantity(int64(checkpoint.CPU), resource.DecimalSI)))
 		Expect(class.Spec.Resources.Size.Memory).NotTo(BeNil())
 		Expect(class.Spec.Resources.Size.Memory.Default.Value()).To(Equal(int64(checkpoint.MemoryMB * 1024 * 1024)))
+
+		By("verifying the stored legacy profile and zero slots survive the upgrade")
+		profileKey := ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: checkpoint.ClassName + "-profile"}
+		profileClass := &vmopv1.VirtualMachineClass{}
+		Expect(client.Get(ctx, profileKey, profileClass)).To(Succeed())
+		Expect(string(profileClass.UID)).To(Equal(checkpoint.ProfileClassUID))
+		Expect(profileClass.Spec.ReservedProfileName).To(Equal(vmopv1.FixedClassProfile("upgrade-profile")))
+		Expect(profileClass.Spec.ReservedSlots).To(BeZero())
+
+		By("storing a richer profile policy and preserving it through an older API write")
+		allowed := []string{"upgrade-profile", "alternate-profile"}
+		profileClass.Spec.ReservedProfileName.Allowed = &allowed
+		Expect(client.Update(ctx, profileClass)).To(Succeed())
+		legacyProfileClass := &vmopv1a5.VirtualMachineClass{}
+		Expect(client.Get(ctx, profileKey, legacyProfileClass)).To(Succeed())
+		Expect(legacyProfileClass.Spec.ReservedProfileID).To(Equal("upgrade-profile"))
+		legacyProfileClass.Spec.Description = "older writer preserves profile policy"
+		Expect(client.Update(ctx, legacyProfileClass)).To(Succeed())
+		Expect(client.Get(ctx, profileKey, profileClass)).To(Succeed())
+		Expect(*profileClass.Spec.ReservedProfileName.Allowed).To(Equal(allowed))
+		Expect(profileClass.Spec.ReservedSlots).To(BeZero())
+
+		By("waiting for the class controller to snapshot the complete profile policy")
+		Eventually(func(g Gomega) {
+			instances := &vmopv1.VirtualMachineClassInstanceList{}
+			g.Expect(client.List(ctx, instances, ctrlclient.InNamespace(checkpoint.Namespace), ctrlclient.MatchingLabels{vmopv1.VMClassInstanceActiveLabelKey: ""})).To(Succeed())
+			var matching *vmopv1.VirtualMachineClassInstance
+			for i := range instances.Items {
+				for _, owner := range instances.Items[i].OwnerReferences {
+					if owner.UID == profileClass.UID {
+						matching = &instances.Items[i]
+					}
+				}
+			}
+			g.Expect(matching).NotTo(BeNil())
+			g.Expect(matching.Spec.ReservedProfileName).To(Equal(profileClass.Spec.ReservedProfileName))
+			g.Expect(matching.Spec.ReservedSlots).To(BeZero())
+		}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 		By("checking the original VM identity, materialized resources, and power state after upgrade")
 		vm := &vmopv1.VirtualMachine{}

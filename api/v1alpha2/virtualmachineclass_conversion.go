@@ -92,6 +92,7 @@ func Convert_v1alpha2_VirtualMachineClassSpec_To_v1alpha6_VirtualMachineClassSpe
 	out.Resources.Requests.Memory = vmopv1.FixedClassResource(in.Policies.Resources.Requests.Memory)
 	out.Resources.Limits.CPU = vmopv1.FixedClassResource(in.Policies.Resources.Limits.Cpu)
 	out.Resources.Limits.Memory = vmopv1.FixedClassResource(in.Policies.Resources.Limits.Memory)
+	out.ReservedProfileName = vmopv1.FixedClassProfile(in.ReservedProfileID)
 	return nil
 }
 
@@ -107,6 +108,7 @@ func Convert_v1alpha6_VirtualMachineClassSpec_To_v1alpha2_VirtualMachineClassSpe
 	out.Policies.Resources.Requests.Memory = vmopv1.ClassResourceDefault(in.Resources.Requests.Memory)
 	out.Policies.Resources.Limits.Cpu = vmopv1.ClassResourceDefault(in.Resources.Limits.CPU)
 	out.Policies.Resources.Limits.Memory = vmopv1.ClassResourceDefault(in.Resources.Limits.Memory)
+	out.ReservedProfileID = vmopv1.ClassProfileDefault(in.ReservedProfileName)
 	return nil
 }
 

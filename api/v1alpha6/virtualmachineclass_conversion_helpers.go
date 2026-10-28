@@ -23,6 +23,29 @@ func ClassResourceDefault(value *ResourceQuantityRange) resource.Quantity {
 	return value.Default.DeepCopy()
 }
 
+// FixedClassProfile converts a legacy reserved profile ID to a policy.
+func FixedClassProfile(value string) *EnumPolicy {
+	if value == "" {
+		return nil
+	}
+	allowed, required := []string{value}, true
+	return &EnumPolicy{Default: &value, Allowed: &allowed, Required: &required}
+}
+
+// ClassProfileDefault returns the selected class profile for an older API.
+func ClassProfileDefault(value *EnumPolicy) string {
+	if value == nil {
+		return ""
+	}
+	if value.Default != nil {
+		return *value.Default
+	}
+	if value.Allowed != nil && len(*value.Allowed) == 1 {
+		return (*value.Allowed)[0]
+	}
+	return ""
+}
+
 // RestoreClassPolicies restores fields an older API cannot represent unless
 // that API's writer changed their projected value. Projected is the preserved
 // class converted down and back up without its conversion annotation.
@@ -40,5 +63,8 @@ func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
 		if apiequality.Semantic.DeepEqual(group.dst.Memory, group.projected.Memory) {
 			group.dst.Memory = group.preserved.Memory
 		}
+	}
+	if apiequality.Semantic.DeepEqual(dst.ReservedProfileName, projected.ReservedProfileName) {
+		dst.ReservedProfileName = preserved.ReservedProfileName
 	}
 }

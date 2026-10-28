@@ -152,16 +152,19 @@ type VirtualMachineClassSpec struct {
 
 	// +optional
 
-	// ReservedProfileID describes the reservation profile associated with
-	// the namespace-scoped VirtualMachineClass object.
-	ReservedProfileID string `json:"reservedProfileID,omitempty"`
+	// ReservedProfileName selects the reservation profile for the class.
+	// A default requires an explicit list of allowed profile names.
+	// +kubebuilder:validation:XValidation:rule="!has(self.default) || has(self.allowed)",message="a reserved profile default requires allowed profiles"
+	ReservedProfileName *EnumPolicy `json:"reservedProfileName,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 
 	// ReservedSlots describes the number of slots reserved for VMs that use
 	// this VirtualMachineClass.
-	// This field is only valid in conjunction with reservedProfileID.
+	// This field is only valid in conjunction with reservedProfileName.
+	//
+	// Deprecated: retained for compatibility with older namespace writers.
 	ReservedSlots int32 `json:"reservedSlots,omitempty"`
 }
 

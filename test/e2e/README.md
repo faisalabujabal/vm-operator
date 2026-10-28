@@ -341,3 +341,5 @@ make clean  # Removes *.test binaries, coverage files, and build artifacts
 - **Feature Gates** - Tests feature flag functionality
 
 This E2E framework ensures VM Operator reliability across diverse environments and use cases, providing confidence in production deployments.
+
+The class reserved-profile sibling extends this staged fixture with a namespace-scoped legacy class containing a profile ID and zero reserved slots. Verification checks the converted profile policy and stable UID, persists a richer policy through an older API writer, and observes the complete policy in the controller-created immutable class instance. No VM uses this synthetic profile: this proves API persistence/conversion and class-controller behavior, not capacity allocation, provider namespace-copy behavior, or a reserved VM in vSphere. The scenario is written but has not been executed on a Supervisor.

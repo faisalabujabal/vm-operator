@@ -333,8 +333,8 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				spoke := version.newSpoke()
 				Expect(json.Unmarshal([]byte(`{"spec":{"hardware":{"devices":{"dynamicDirectPathIODevices":[
 					{"vendorID":1,"deviceID":2,"customLabel":"a"},
-					{"vendorID":1,"deviceID":2,"customLabel":"a"},
-					{"vendorID":1,"deviceID":2,"customLabel":"b"}]}}}}`), spoke)).To(Succeed())
+					{"vendorID":1,"deviceID":2,"customLabel":"b"},
+					{"vendorID":1,"deviceID":2,"customLabel":"a"}]}}}}`), spoke)).To(Succeed())
 				var hub vmopv1.VirtualMachineClass
 				Expect(spoke.ConvertTo(&hub)).To(Succeed())
 				Expect(*hub.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).To(Equal([]vmopv1.DynamicDirectPathIODevice{
@@ -361,6 +361,31 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 					{VendorID: 1, DeviceID: 2, CustomLabel: "a"},
 					{VendorID: 1, DeviceID: 2, CustomLabel: "b"},
 				}))
+			})
+
+			It("distinguishes omitted legacy device lists from explicitly empty lists", func() {
+				var omitted vmopv1.VirtualMachineClass
+				Expect(version.newSpoke().ConvertTo(&omitted)).To(Succeed())
+				Expect(omitted.Spec.Hardware.Devices.VGPUDevices).To(BeNil())
+				Expect(omitted.Spec.Hardware.Devices.DynamicDirectPathIODevices).To(BeNil())
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"hardware":{"devices":{"vgpuDevices":[],"dynamicDirectPathIODevices":[]}}}}`), spoke)).To(Succeed())
+				var empty vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&empty)).To(Succeed())
+				Expect(empty.Spec.Hardware.Devices.VGPUDevices.Default).NotTo(BeNil())
+				Expect(*empty.Spec.Hardware.Devices.VGPUDevices.Default).NotTo(BeNil())
+				Expect(*empty.Spec.Hardware.Devices.VGPUDevices.Default).To(BeEmpty())
+				Expect(empty.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).NotTo(BeNil())
+				Expect(*empty.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).NotTo(BeNil())
+				Expect(*empty.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).To(BeEmpty())
+			})
+
+			It("rejects nonpositive DirectPath counts before legacy projection", func() {
+				for _, count := range []int32{0, -1} {
+					devices := []vmopv1.DynamicDirectPathIODevice{{VendorID: 1, DeviceID: 2, Count: count}}
+					hub := &vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{DynamicDirectPathIODevices: &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &devices}}}}}
+					Expect(version.newSpoke().ConvertFrom(hub)).To(MatchError("dynamic DirectPath device count must be positive"))
+				}
 			})
 
 			It("rejects an excessive device projection before allocating it", func() {

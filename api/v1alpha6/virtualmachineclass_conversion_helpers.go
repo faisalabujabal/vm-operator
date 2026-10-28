@@ -9,6 +9,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
+// MaxClassDeviceExpansion bounds allocation when expanding counted devices.
+// It is a conversion and configuration safety limit, not a hardware capability.
+const MaxClassDeviceExpansion = 10000
+
 // FixedClassResource converts a legacy scalar into a fixed class range.
 func FixedClassResource(value resource.Quantity) *ResourceQuantityRange {
 	minimum, maximum, def := value.DeepCopy(), value.DeepCopy(), value.DeepCopy()
@@ -40,5 +44,12 @@ func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
 		if apiequality.Semantic.DeepEqual(group.dst.Memory, group.projected.Memory) {
 			group.dst.Memory = group.preserved.Memory
 		}
+	}
+
+	if apiequality.Semantic.DeepEqual(dst.Hardware.Devices.VGPUDevices, projected.Hardware.Devices.VGPUDevices) {
+		dst.Hardware.Devices.VGPUDevices = preserved.Hardware.Devices.VGPUDevices
+	}
+	if apiequality.Semantic.DeepEqual(dst.Hardware.Devices.DynamicDirectPathIODevices, projected.Hardware.Devices.DynamicDirectPathIODevices) {
+		dst.Hardware.Devices.DynamicDirectPathIODevices = preserved.Hardware.Devices.DynamicDirectPathIODevices
 	}
 }

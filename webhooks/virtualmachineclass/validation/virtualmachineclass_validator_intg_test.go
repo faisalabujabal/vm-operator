@@ -10,6 +10,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
@@ -135,8 +136,32 @@ func intgTestsValidateCreate() {
 		Entry("rejects CPU size defaults above int32", func(class *vmopv1.VirtualMachineClass) {
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Default: ptr.To(resource.MustParse("2147483648"))}
 		}, true),
+		Entry("rejects matcher with multiple string operations", func(class *vmopv1.VirtualMachineClass) {
+			allowed := []vmopv1.VGPUDeviceMatcher{{ProfileName: &vmopv1.StringMatcher{
+				Fixed: ptr.To("profile-a"), Glob: ptr.To("profile-*"),
+			}}}
+			class.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{Allowed: &allowed}
+		}, true),
+		Entry("rejects a zero device count", func(class *vmopv1.VirtualMachineClass) {
+			defaults := []vmopv1.DynamicDirectPathIODevice{{VendorID: 1, DeviceID: 2, Count: 0}}
+			class.Spec.Hardware.Devices.DynamicDirectPathIODevices = &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &defaults}
+		}, true),
 	)
 
+	It("preserves DirectPath entries with the same device IDs and distinct labels", func() {
+		class := ctx.vmClass.DeepCopy()
+		defaults := []vmopv1.DynamicDirectPathIODevice{
+			{VendorID: 1, DeviceID: 2, Count: 1, CustomLabel: "first"},
+			{VendorID: 1, DeviceID: 2, Count: 3, CustomLabel: "second"},
+		}
+		class.Spec.Hardware.Devices.DynamicDirectPathIODevices = &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &defaults}
+		Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+
+		var persisted vmopv1.VirtualMachineClass
+		Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(class), &persisted)).To(Succeed())
+		got := *persisted.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default
+		Expect(got).To(ConsistOf(defaults))
+	})
 }
 
 func intgTestsValidateDelete() {

@@ -62,7 +62,7 @@ func CreateConfigSpec(
 		},
 	)
 
-	// Ensure ExtraConfig contains the VM Class's reservation profile ID if set.
+	// Ensure ExtraConfig contains the VM Class's reservation profile if set.
 	if id := vmClassSpec.ReservedProfileID; id != "" {
 		configSpec.ExtraConfig = util.OptionValues(configSpec.ExtraConfig).Merge(
 			&vimtypes.OptionValue{
@@ -484,10 +484,13 @@ func cleanupConfigSpecForPlacement(configSpec *vimtypes.VirtualMachineConfigSpec
 // ConfigSpecFromVMClassDevices creates a ConfigSpec that adds the standalone hardware devices from
 // the VMClass if any. This ConfigSpec will be used as the class ConfigSpec to CreateConfigSpec, with
 // the rest of the class fields - like CPU count - applied on top.
-func ConfigSpecFromVMClassDevices(vmClassSpec *vmopv1.VirtualMachineClassSpec) vimtypes.VirtualMachineConfigSpec {
-	devsFromClass := CreatePCIDevicesFromVMClass(vmClassSpec.Hardware.Devices)
+func ConfigSpecFromVMClassDevices(vmClassSpec *vmopv1.VirtualMachineClassSpec) (vimtypes.VirtualMachineConfigSpec, error) {
+	devsFromClass, err := CreatePCIDevicesFromVMClass(vmClassSpec.Hardware.Devices)
+	if err != nil {
+		return vimtypes.VirtualMachineConfigSpec{}, err
+	}
 	if len(devsFromClass) == 0 {
-		return vimtypes.VirtualMachineConfigSpec{}
+		return vimtypes.VirtualMachineConfigSpec{}, nil
 	}
 
 	var configSpec vimtypes.VirtualMachineConfigSpec
@@ -497,7 +500,7 @@ func ConfigSpecFromVMClassDevices(vmClassSpec *vmopv1.VirtualMachineClassSpec) v
 			Device:    dev,
 		})
 	}
-	return configSpec
+	return configSpec, nil
 }
 
 func initResourceAllocation(ap **vimtypes.ResourceAllocationInfo) {

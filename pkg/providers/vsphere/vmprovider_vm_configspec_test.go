@@ -621,19 +621,13 @@ func vmConfigSpecTests() {
 
 	Context("VM Class Spec and ConfigSpec both contain GPU and DirectPath devices", func() {
 		BeforeEach(func() {
+			vgpuDefault := []vmopv1.VGPUDevice{{ProfileName: "profile-from-class"}}
+			ddpioDefault := []vmopv1.DynamicDirectPathIODevice{{
+				VendorID: 50, DeviceID: 51, Count: 1, CustomLabel: "label-from-class",
+			}}
 			vmClass.Spec.Hardware.Devices = vmopv1.VirtualDevices{
-				VGPUDevices: []vmopv1.VGPUDevice{
-					{
-						ProfileName: "profile-from-class",
-					},
-				},
-				DynamicDirectPathIODevices: []vmopv1.DynamicDirectPathIODevice{
-					{
-						VendorID:    50,
-						DeviceID:    51,
-						CustomLabel: "label-from-class",
-					},
-				},
+				VGPUDevices:                &vmopv1.VGPUDeviceListPolicy{Default: &vgpuDefault},
+				DynamicDirectPathIODevices: &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &ddpioDefault},
 			}
 
 			// Create the ConfigSpec with a GPU and a DDPIO device.

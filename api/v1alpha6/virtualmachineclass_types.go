@@ -13,18 +13,31 @@ import (
 
 // VGPUDevice contains the configuration corresponding to a vGPU device.
 type VGPUDevice struct {
+	// ProfileName identifies the vGPU profile.
+	// +required
 	ProfileName string `json:"profileName"`
 }
 
 // DynamicDirectPathIODevice contains the configuration corresponding to a
 // Dynamic DirectPath I/O device.
 type DynamicDirectPathIODevice struct {
+	// VendorID identifies the device vendor.
+	// +required
 	VendorID int64 `json:"vendorID"`
+	// DeviceID identifies the device model.
+	// +required
 	DeviceID int64 `json:"deviceID"`
 
-	// +optional
+	// Count is the number of devices with this identity.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Count int32 `json:"count"`
 
-	CustomLabel string `json:"customLabel,omitempty"`
+	// CustomLabel selects a device backing and is part of the device identity.
+	// An empty label selects an unlabeled device.
+	// +optional
+	// +kubebuilder:default=""
+	CustomLabel string `json:"customLabel"`
 }
 
 // InstanceStorage provides information used to configure instance
@@ -49,16 +62,15 @@ type InstanceStorageVolume struct {
 	Size resource.Quantity `json:"size"`
 }
 
-// VirtualDevices contains information about the virtual devices associated
-// with a VirtualMachineClass.
+// VirtualDevices contains device presets and constraints for a class.
 type VirtualDevices struct {
+	// VGPUDevices describes vGPU devices.
 	// +optional
-	// +listType=map
-	// +listMapKey=profileName
-	VGPUDevices []VGPUDevice `json:"vgpuDevices,omitempty"`
+	VGPUDevices *VGPUDeviceListPolicy `json:"vgpuDevices,omitempty"`
 
+	// DynamicDirectPathIODevices describes Dynamic DirectPath I/O devices.
 	// +optional
-	DynamicDirectPathIODevices []DynamicDirectPathIODevice `json:"dynamicDirectPathIODevices,omitempty"`
+	DynamicDirectPathIODevices *DynamicDirectPathIODeviceListPolicy `json:"dynamicDirectPathIODevices,omitempty"`
 }
 
 // VirtualMachineClassHardware describes hardware presets for a class.

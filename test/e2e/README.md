@@ -124,7 +124,7 @@ E2E_NAMESPACE=<existing-namespace> VMCLASS_UPGRADE_RUN_ID=<same-unique-dns-label
 The run ID must be a DNS label no longer than 31 characters. The prepare
 invocation uses v1alpha5 VM creation and VMClass API reads, along with the
 baseline-compatible DCLI class provisioning path. Verify checks the converted
-v1alpha6 VMClass resource defaults, the identity, materialized spec,
+v1alpha6 VMClass resource and device defaults, the identity, materialized spec,
 and vSphere compute settings of the existing powered-on VM against its saved
 baseline, and a new v1alpha6 VM created from the upgraded legacy class.
 
@@ -341,3 +341,5 @@ make clean  # Removes *.test binaries, coverage files, and build artifacts
 - **Feature Gates** - Tests feature flag functionality
 
 This E2E framework ensures VM Operator reliability across diverse environments and use cases, providing confidence in production deployments.
+
+The experimental `VM-CLASS-DEVICE-CONVERSION` test exercises the served device-policy API, legacy projections and older-client writes without allocating GPU hardware. The staged `VM-CLASS-SCHEMA-UPGRADE` fixture also stores an old-API device class and verifies vGPU and repeated DirectPath identities after upgrade. These API fixtures do not verify PCI device realization on a GPU host; provider unit tests cover generated device configuration. Both fixtures preserve full guest memory reservation for compatibility with old class admission behavior.

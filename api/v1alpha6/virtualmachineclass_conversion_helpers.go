@@ -33,6 +33,21 @@ func ClassResourceDefault(value *ResourceQuantityRange) resource.Quantity {
 	return value.Default.DeepCopy()
 }
 
+// FixedClassResourcePair converts legacy CPU and memory quantities to fixed
+// ranges with independent copies of their bounds and defaults.
+func FixedClassResourcePair(cpu, memory resource.Quantity) VirtualMachineClassResourceSpec {
+	return VirtualMachineClassResourceSpec{
+		CPU:    FixedClassResource(cpu),
+		Memory: FixedClassResource(memory),
+	}
+}
+
+// ClassResourcePairDefaults projects CPU and memory defaults into independent
+// legacy quantities. Missing defaults project to zero quantities.
+func ClassResourcePairDefaults(in VirtualMachineClassResourceSpec) (cpu, memory resource.Quantity) {
+	return ClassResourceDefault(in.CPU), ClassResourceDefault(in.Memory)
+}
+
 // RestoreClassPolicies restores fields an older API cannot represent unless
 // that API's writer changed their projected value. Projected is the preserved
 // class converted down and back up without its conversion annotation.
@@ -44,19 +59,19 @@ func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
 		{&dst.Resources.Requests, &preserved.Resources.Requests, &projected.Resources.Requests},
 		{&dst.Resources.Limits, &preserved.Resources.Limits, &projected.Resources.Limits},
 	} {
-		if apiequality.Semantic.DeepEqual(group.dst.CPU, group.projected.CPU) {
-			group.dst.CPU = group.preserved.CPU
-		}
-		if apiequality.Semantic.DeepEqual(group.dst.Memory, group.projected.Memory) {
-			group.dst.Memory = group.preserved.Memory
-		}
+		restoreUnchangedClassPolicy(&group.dst.CPU, group.preserved.CPU, group.projected.CPU)
+		restoreUnchangedClassPolicy(&group.dst.Memory, group.preserved.Memory, group.projected.Memory)
 	}
 
-	if apiequality.Semantic.DeepEqual(dst.Hardware.Devices.VGPUDevices, projected.Hardware.Devices.VGPUDevices) {
-		dst.Hardware.Devices.VGPUDevices = preserved.Hardware.Devices.VGPUDevices
-	}
-	if apiequality.Semantic.DeepEqual(dst.Hardware.Devices.DynamicDirectPathIODevices, projected.Hardware.Devices.DynamicDirectPathIODevices) {
-		dst.Hardware.Devices.DynamicDirectPathIODevices = preserved.Hardware.Devices.DynamicDirectPathIODevices
+	restoreUnchangedClassPolicy(&dst.Hardware.Devices.VGPUDevices,
+		preserved.Hardware.Devices.VGPUDevices, projected.Hardware.Devices.VGPUDevices)
+	restoreUnchangedClassPolicy(&dst.Hardware.Devices.DynamicDirectPathIODevices,
+		preserved.Hardware.Devices.DynamicDirectPathIODevices, projected.Hardware.Devices.DynamicDirectPathIODevices)
+}
+
+func restoreUnchangedClassPolicy[T any](dst *T, preserved, projected T) {
+	if apiequality.Semantic.DeepEqual(*dst, projected) {
+		*dst = preserved
 	}
 }
 

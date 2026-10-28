@@ -5,6 +5,8 @@
 package virtualmachine
 
 import (
+	"fmt"
+
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
@@ -45,12 +47,36 @@ func CreatePCIDevicesFromConfigSpec(pciDevsFromConfigSpec []*vimtypes.VirtualPCI
 }
 
 // CreatePCIDevicesFromVMClass creates vim25 VirtualDevices from the specified list of PCI devices from VM Class spec.
-func CreatePCIDevicesFromVMClass(pciDevicesFromVMClass vmopv1.VirtualDevices) []vimtypes.BaseVirtualDevice {
-	devices := make([]vimtypes.BaseVirtualDevice, 0, len(pciDevicesFromVMClass.VGPUDevices)+len(pciDevicesFromVMClass.DynamicDirectPathIODevices))
+func CreatePCIDevicesFromVMClass(pciDevicesFromVMClass vmopv1.VirtualDevices) ([]vimtypes.BaseVirtualDevice, error) {
+	var vgpuDevices []vmopv1.VGPUDevice
+	if p := pciDevicesFromVMClass.VGPUDevices; p != nil && p.Default != nil {
+		vgpuDevices = *p.Default
+	}
+	var dynamicDevices []vmopv1.DynamicDirectPathIODevice
+	if p := pciDevicesFromVMClass.DynamicDirectPathIODevices; p != nil && p.Default != nil {
+		dynamicDevices = *p.Default
+	}
+	deviceCount := int64(0)
+	for range vgpuDevices {
+		if deviceCount+1 > vmopv1.MaxClassDeviceExpansion {
+			return nil, fmt.Errorf("VM Class device expansion count exceeds maximum %d", vmopv1.MaxClassDeviceExpansion)
+		}
+		deviceCount++
+	}
+	for _, device := range dynamicDevices {
+		if device.Count < 1 {
+			return nil, fmt.Errorf("DirectPath I/O device %d:%d count must be positive", device.VendorID, device.DeviceID)
+		}
+		if deviceCount+int64(device.Count) > vmopv1.MaxClassDeviceExpansion {
+			return nil, fmt.Errorf("VM Class device expansion count exceeds maximum %d", vmopv1.MaxClassDeviceExpansion)
+		}
+		deviceCount += int64(device.Count)
+	}
+	devices := make([]vimtypes.BaseVirtualDevice, 0, int(deviceCount))
 
 	deviceKey := pciDevicesStartDeviceKey
 
-	for _, vGPU := range pciDevicesFromVMClass.VGPUDevices {
+	for _, vGPU := range vgpuDevices {
 		backingInfo := &vimtypes.VirtualPCIPassthroughVmiopBackingInfo{
 			Vgpu: vGPU.ProfileName,
 		}
@@ -59,7 +85,7 @@ func CreatePCIDevicesFromVMClass(pciDevicesFromVMClass vmopv1.VirtualDevices) []
 		deviceKey--
 	}
 
-	for _, dynamicDirectPath := range pciDevicesFromVMClass.DynamicDirectPathIODevices {
+	for _, dynamicDirectPath := range dynamicDevices {
 		allowedDev := vimtypes.VirtualPCIPassthroughAllowedDevice{
 			VendorId: int32(dynamicDirectPath.VendorID), //nolint:gosec // disable G115
 			DeviceId: int32(dynamicDirectPath.DeviceID), //nolint:gosec // disable G115
@@ -68,12 +94,14 @@ func CreatePCIDevicesFromVMClass(pciDevicesFromVMClass vmopv1.VirtualDevices) []
 			AllowedDevice: []vimtypes.VirtualPCIPassthroughAllowedDevice{allowedDev},
 			CustomLabel:   dynamicDirectPath.CustomLabel,
 		}
-		dev := CreatePCIPassThroughDevice(deviceKey, backingInfo)
-		devices = append(devices, dev)
-		deviceKey--
+		for range dynamicDirectPath.Count {
+			dev := CreatePCIPassThroughDevice(deviceKey, backingInfo)
+			devices = append(devices, dev)
+			deviceKey--
+		}
 	}
 
-	return devices
+	return devices, nil
 }
 
 func CreateInstanceStorageDiskDevices(isVolumes []vmopv1.VirtualMachineVolume) []vimtypes.BaseVirtualDevice {

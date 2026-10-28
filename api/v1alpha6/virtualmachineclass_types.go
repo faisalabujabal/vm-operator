@@ -13,18 +13,36 @@ import (
 
 // VGPUDevice contains the configuration corresponding to a vGPU device.
 type VGPUDevice struct {
+	// ProfileName identifies the vGPU profile.
+	// +required
 	ProfileName string `json:"profileName"`
+
+	// Count is the number of devices using this profile.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Count int32 `json:"count"`
 }
 
 // DynamicDirectPathIODevice contains the configuration corresponding to a
 // Dynamic DirectPath I/O device.
 type DynamicDirectPathIODevice struct {
+	// VendorID identifies the device vendor.
+	// +required
 	VendorID int64 `json:"vendorID"`
+	// DeviceID identifies the device model.
+	// +required
 	DeviceID int64 `json:"deviceID"`
 
-	// +optional
+	// Count is the number of devices with this identity.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	Count int32 `json:"count"`
 
-	CustomLabel string `json:"customLabel,omitempty"`
+	// CustomLabel selects a device backing and is part of the device identity.
+	// An empty label selects an unlabeled device.
+	// +optional
+	// +kubebuilder:default=""
+	CustomLabel string `json:"customLabel"`
 }
 
 // InstanceStorage provides information used to configure instance
@@ -49,57 +67,55 @@ type InstanceStorageVolume struct {
 	Size resource.Quantity `json:"size"`
 }
 
-// VirtualDevices contains information about the virtual devices associated
-// with a VirtualMachineClass.
+// VirtualDevices contains device presets and constraints for a class.
 type VirtualDevices struct {
+	// VGPUDevices describes vGPU devices.
 	// +optional
-	// +listType=map
-	// +listMapKey=profileName
-	VGPUDevices []VGPUDevice `json:"vgpuDevices,omitempty"`
+	VGPUDevices *VGPUDeviceListPolicy `json:"vgpuDevices,omitempty"`
 
+	// DynamicDirectPathIODevices describes Dynamic DirectPath I/O devices.
 	// +optional
-	DynamicDirectPathIODevices []DynamicDirectPathIODevice `json:"dynamicDirectPathIODevices,omitempty"`
+	DynamicDirectPathIODevices *DynamicDirectPathIODeviceListPolicy `json:"dynamicDirectPathIODevices,omitempty"`
 }
 
-// VirtualMachineClassHardware describes a virtual hardware resource
-// specification.
+// VirtualMachineClassHardware describes hardware presets for a class.
 type VirtualMachineClassHardware struct {
-	// +optional
-	Cpus int64 `json:"cpus,omitempty"`
-
-	// +optional
-	Memory resource.Quantity `json:"memory,omitempty"`
-
+	// Devices describes the class's device configuration.
 	// +optional
 	Devices VirtualDevices `json:"devices,omitempty"`
 
+	// InstanceStorage describes instance storage volumes.
 	// +optional
 	InstanceStorage InstanceStorage `json:"instanceStorage,omitempty"`
 }
 
-// VirtualMachineResourceSpec describes a virtual hardware policy specification.
-type VirtualMachineResourceSpec struct {
+// VirtualMachineClassResourceSpec describes CPU and memory value ranges.
+type VirtualMachineClassResourceSpec struct {
+	// CPU is measured in vCPUs, including requests and limits.
 	// +optional
-	Cpu resource.Quantity `json:"cpu,omitempty"` //nolint:revive
+	CPU *ResourceQuantityRange `json:"cpu,omitempty"`
 
+	// Memory is measured in bytes.
 	// +optional
-	Memory resource.Quantity `json:"memory,omitempty"`
+	Memory *ResourceQuantityRange `json:"memory,omitempty"`
 }
 
-// VirtualMachineClassResources describes the virtual hardware resource
-// reservations and limits configuration to be used by a VirtualMachineClass.
+// VirtualMachineClassResources describes guest size, reservations and limits.
 type VirtualMachineClassResources struct {
+	// +kubebuilder:validation:XValidation:rule="!has(self.cpu) || !has(self.cpu.min) || (quantity(string(self.cpu.min)).isInteger() && quantity(string(self.cpu.min)).asInteger() >= 0 && quantity(string(self.cpu.min)).asInteger() <= 2147483647)",message="CPU size min must be a whole number between 0 and 2147483647"
+	// +kubebuilder:validation:XValidation:rule="!has(self.cpu) || !has(self.cpu.max) || (quantity(string(self.cpu.max)).isInteger() && quantity(string(self.cpu.max)).asInteger() >= 0 && quantity(string(self.cpu.max)).asInteger() <= 2147483647)",message="CPU size max must be a whole number between 0 and 2147483647"
+	// +kubebuilder:validation:XValidation:rule="!has(self.cpu) || !has(self.cpu.default) || (quantity(string(self.cpu.default)).isInteger() && quantity(string(self.cpu.default)).asInteger() >= 0 && quantity(string(self.cpu.default)).asInteger() <= 2147483647)",message="CPU size default must be a whole number between 0 and 2147483647"
+	// Size describes the guest-visible CPU and memory configuration.
 	// +optional
-	Requests VirtualMachineResourceSpec `json:"requests,omitempty"`
+	Size VirtualMachineClassResourceSpec `json:"size,omitempty"`
 
+	// Requests describes CPU and memory reservations.
 	// +optional
-	Limits VirtualMachineResourceSpec `json:"limits,omitempty"`
-}
+	Requests VirtualMachineClassResourceSpec `json:"requests,omitempty"`
 
-// VirtualMachineClassPolicies describes the policy configuration to be used by
-// a VirtualMachineClass.
-type VirtualMachineClassPolicies struct {
-	Resources VirtualMachineClassResources `json:"resources,omitempty"`
+	// Limits describes CPU and memory limits.
+	// +optional
+	Limits VirtualMachineClassResourceSpec `json:"limits,omitempty"`
 }
 
 // VirtualMachineClassSpec defines the desired state of VirtualMachineClass.
@@ -129,11 +145,8 @@ type VirtualMachineClassSpec struct {
 
 	// +optional
 
-	// Policies describes the configuration of the VirtualMachineClass
-	// attributes related to virtual infrastructure policy. The configuration
-	// specified in this field is used to customize various policies related to
-	// infrastructure resource consumption.
-	Policies VirtualMachineClassPolicies `json:"policies,omitempty"`
+	// Resources describes guest size, reservations and limits.
+	Resources VirtualMachineClassResources `json:"resources,omitempty"`
 
 	// +optional
 
@@ -156,16 +169,19 @@ type VirtualMachineClassSpec struct {
 
 	// +optional
 
-	// ReservedProfileID describes the reservation profile associated with
-	// the namespace-scoped VirtualMachineClass object.
-	ReservedProfileID string `json:"reservedProfileID,omitempty"`
+	// ReservedProfileName selects the reservation profile for the class.
+	// A default requires an explicit list of allowed profile names.
+	// +kubebuilder:validation:XValidation:rule="!has(self.default) || has(self.allowed)",message="a reserved profile default requires allowed profiles"
+	ReservedProfileName *EnumPolicy `json:"reservedProfileName,omitempty"`
 
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 
 	// ReservedSlots describes the number of slots reserved for VMs that use
 	// this VirtualMachineClass.
-	// This field is only valid in conjunction with reservedProfileID.
+	// This field is only valid in conjunction with reservedProfileName.
+	//
+	// Deprecated: retained for compatibility with older namespace writers.
 	ReservedSlots int32 `json:"reservedSlots,omitempty"`
 }
 
@@ -177,8 +193,8 @@ type VirtualMachineClassStatus struct {
 // +kubebuilder:resource:scope=Namespaced,shortName=vmclass
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".spec.hardware.cpus"
-// +kubebuilder:printcolumn:name="Memory",type="string",JSONPath=".spec.hardware.memory"
+// +kubebuilder:printcolumn:name="CPU",type="string",JSONPath=".spec.resources.size.cpu.default"
+// +kubebuilder:printcolumn:name="Memory",type="string",JSONPath=".spec.resources.size.memory.default"
 // +kubebuilder:printcolumn:name="Capabilities",type="string",priority=1,JSONPath=".status.capabilities"
 
 // VirtualMachineClass is the schema for the virtualmachineclasses API and

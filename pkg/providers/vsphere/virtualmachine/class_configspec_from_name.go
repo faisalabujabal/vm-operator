@@ -35,7 +35,7 @@ func ClassConfigSpecFromClassSpec(
 		return configSpec, nil
 	}
 
-	return ConfigSpecFromVMClassDevices(spec), nil
+	return ConfigSpecFromVMClassDevices(spec)
 }
 
 // ClassConfigSpecForVirtualMachine returns the ConfigSpec used to derive NIC

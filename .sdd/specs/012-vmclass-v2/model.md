@@ -9,7 +9,7 @@ All types are in `vmoperator.vmware.com/v1alpha6`, which has not shipped and is 
 
 ## Value shapes
 
-Every governable field has one shape. Each shape is a concrete, named Go struct (no generics, so `controller-gen` can build the schema). All sub-fields are optional pointers, so absent is distinct from zero. Each shape has a field set no other shape has, so a client can tell the shape from the CRD schema alone; a schema test checks that every governed field matches exactly one shape.
+Every governable field has one shape. Each shape is a concrete, named Go struct (no generics, so `controller-gen` can build the schema). All sub-fields are optional pointers, so absent is distinct from zero. Clients distinguish shapes by property names, property types, and nested structure in the CRD schema. A schema test checks that every governed field matches exactly one shape; field names alone are insufficient because EnumPolicy and SetPolicy both have default, allowed, and required.
 
 | Shape | Fields | Rules |
 |---|---|---|
@@ -24,19 +24,19 @@ A collection field's shape follows what its value is. A collection of independen
 | Collection | Shape | Milestone |
 |---|---|---|
 | `advanced.extraConfig` | `ListPolicy` | 1 |
-| `hardware.devices.vgpuDevices` | `ListPolicy`; item `{profileName, count}`, key `profileName` | 1 |
-| `hardware.devices.dynamicDirectPathIODevices` | `ListPolicy`; item `{vendorID, deviceID, customLabel, count}`, key `vendorID` + `deviceID`. `customLabel`, when set, is passed through to the device backing; it is not a key. | 1 |
+| `hardware.devices.vgpuDevices` | `ListPolicy`; item `{profileName}`, key `profileName`. The initial migration preserves one device per profile; exposing multiple devices of the same profile is deferred. | 1 |
+| `hardware.devices.dynamicDirectPathIODevices` | `ListPolicy`; item `{vendorID, deviceID, customLabel, count}`, key `vendorID` + `deviceID` + `customLabel`. An omitted label is normalized to the empty string. The label remains part of the device backing and identity so older classes with the same numeric IDs and different labels remain representable. | 1 |
 | `advanced.pnumaNodeAffinity` | `Int32SetPolicy` of node IDs, e.g. `{default: [0,1], allowed: [{members: [0,1]}, {members: [2,3]}], required: true}`. Unset `allowed` = any set of valid node IDs; `required: false` permits an explicit `[]` (no pinning). Each node ID is checked against `ConfigTarget.numNumaNodes`. | 1 |
 | `hardware.cpuFeatureMask` | Preset of the top class only in Milestone 1 (no VM field, so nothing below it to govern); checked against config options `cpuFeatureMaskSupported`. [NEEDS CLARIFICATION: shape for Milestone 2 child classes. Each CPUID leaf's mask is one setting, but the leaves are independent items.] | 2 |
 
-Device items: independent count bounds and required entries are deferred. A device's quantity is its `count`.
+Device items: independent count bounds and required entries are deferred. DirectPath `count` preserves the quantity of repeated legacy entries with the same identity. The initial migration does not add a vGPU `count` field or change devices represented in raw `configSpec`. Before adding inline VM device fields, resolve the grouped-device model below against the VM schema reference's individually named PCI devices and per-device settings; that design decision is separate from this migration.
 
 **Matching names.** An item's key fields have the same names in the environment-browser entry, the class item and the VM item, so choosing an option copies the entry's key fields. Environment-browser entries may carry extra display fields (`vendorName`, `deviceName`, `customLabel`); class and VM items add payload such as `count`.
 
 | Item | Environment-browser entry | Class item | VM item |
 |---|---|---|---|
 | Dynamic DirectPath I/O | ConfigTarget `dynamicPassthroughDevices[]`: `vendorID`, `deviceID` (+ `vendorName`, `deviceName`, `customLabel`) | `vendorID`, `deviceID`, `customLabel`, `count` | same as the class item |
-| vGPU | ConfigTarget `vgpuProfile[]`: `profileName` (+ display fields) | `profileName`, `count` | same as the class item |
+| vGPU | ConfigTarget `vgpuProfile[]`: `profileName` (+ display fields) | `profileName` | Deferred: settle individual device identity and per-device settings before adding the VM counterpart. |
 | pNUMA node | ConfigTarget `numNumaNodes` (IDs 0..n-1) | node ID | `pnumaNodeAffinity []int32` |
 
 ## `VirtualMachineClass.spec`
@@ -52,7 +52,7 @@ Device items: independent count bounds and required entries are deferred. A devi
 | `governs.existingVMs` | enum | `AllowOnViolation` or `DenyPowerOn`. Required on a governing class with no parent. In Milestone 2 only the top class sets it; children inherit it. |
 | `parentClassRefs` | list of `{name}` | Milestone 2. Rejected in Milestone 1. One entry; same namespace. |
 | `resources.size.{cpu,memory}` | Number | CPU in vCPUs. |
-| `resources.{requests,limits}.{cpu,memory}` | Number | CPU in vCPUs; compared with a VM's MHz using the cluster's minimum host frequency. |
+| `resources.{requests,limits}.{cpu,memory}` | Number | CPU in vCPUs. The incremental migration retains the existing Supervisor-wide minimum host frequency for conversion to VM MHz. Cluster-specific conversion remains an open question and must not change the vCPU definition implicitly. |
 | `cpuAdvanced.*`, `memoryAdvanced.*`, `bootOptions.*`, `advanced.*` | per field | Same paths as `VirtualMachine.spec`. |
 | `advanced.extraConfig` | `ListPolicy` | At the VM's path. |
 | `hardware.devices.{vgpuDevices,dynamicDirectPathIODevices}` | `ListPolicy` of device items | See "Value shapes". |

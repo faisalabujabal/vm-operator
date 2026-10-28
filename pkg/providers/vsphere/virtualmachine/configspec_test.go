@@ -489,14 +489,30 @@ var _ = Describe("CreateConfigSpec", func() {
 			})
 		})
 
+		When("only raw ConfigSpec supplies a reserved profile", func() {
+			BeforeEach(func() {
+				vmClassSpec.ReservedProfileID = ""
+				classConfigSpec.ExtraConfig = []vimtypes.BaseOptionValue{
+					&vimtypes.OptionValue{Key: constants.ExtraConfigReservedProfileID, Value: "legacy-raw-profile"},
+				}
+			})
+
+			It("preserves the legacy reservation", func() {
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(constants.ExtraConfigReservedProfileID)
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(Equal("legacy-raw-profile"))
+			})
+		})
+
 		When("VM Class has reserved profile ID", func() {
 			BeforeEach(func() {
 				vmClassSpec.ReservedProfileID = "my-profile-id"
 			})
 			Specify("configSpec should have the expected ExtraConfig value", func() {
-				profileID, _ := object.OptionValueList(
-					configSpec.ExtraConfig).GetString(
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(
 					constants.ExtraConfigReservedProfileID)
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(BeAssignableToTypeOf(""))
 				Expect(profileID).To(Equal(vmClassSpec.ReservedProfileID))
 
 				namespacedName, _ := object.OptionValueList(
@@ -2523,6 +2539,7 @@ var _ = Describe("ConfigSpecFromVMClassDevices", func() {
 	var (
 		vmClassSpec *vmopv1.VirtualMachineClassSpec
 		configSpec  vimtypes.VirtualMachineConfigSpec
+		configErr   error
 	)
 
 	Context("when Class specifies GPU/DDPIO in Hardware", func() {
@@ -2530,24 +2547,26 @@ var _ = Describe("ConfigSpecFromVMClassDevices", func() {
 		BeforeEach(func() {
 			vmClassSpec = &vmopv1.VirtualMachineClassSpec{}
 
-			vmClassSpec.Hardware.Devices.VGPUDevices = []vmopv1.VGPUDevice{{
+			vgpuDefault := []vmopv1.VGPUDevice{{
 				ProfileName: "createplacementspec-profile",
 			}}
+			vmClassSpec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{Default: &vgpuDefault}
 
-			vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices = []vmopv1.DynamicDirectPathIODevice{{
-				VendorID:    20,
-				DeviceID:    30,
-				CustomLabel: "createplacementspec-label",
-			}}
+			ddpioDefault := []vmopv1.DynamicDirectPathIODevice{
+				{VendorID: 20, DeviceID: 30, Count: 2, CustomLabel: "createplacementspec-label"},
+				{VendorID: 20, DeviceID: 31, Count: 1, CustomLabel: "second-label"},
+			}
+			vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices = &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &ddpioDefault}
 		})
 
 		JustBeforeEach(func() {
-			configSpec = virtualmachine.ConfigSpecFromVMClassDevices(vmClassSpec)
+			configSpec, configErr = virtualmachine.ConfigSpecFromVMClassDevices(vmClassSpec)
 		})
 
 		It("Returns expected ConfigSpec", func() {
+			Expect(configErr).ToNot(HaveOccurred())
 			Expect(configSpec).ToNot(BeNil())
-			Expect(configSpec.DeviceChange).To(HaveLen(2)) // One each for GPU an DDPIO above
+			Expect(configSpec.DeviceChange).To(HaveLen(4)) // One GPU, two matching DDPIOs, and another identity
 
 			dSpec1 := configSpec.DeviceChange[0].GetVirtualDeviceConfigSpec()
 			dev1, ok := dSpec1.Device.(*vimtypes.VirtualPCIPassthrough)
@@ -2555,7 +2574,7 @@ var _ = Describe("ConfigSpecFromVMClassDevices", func() {
 			pciDev1 := dev1.GetVirtualDevice()
 			pciBacking1, ok1 := pciDev1.Backing.(*vimtypes.VirtualPCIPassthroughVmiopBackingInfo)
 			Expect(ok1).To(BeTrue())
-			Expect(pciBacking1.Vgpu).To(Equal(vmClassSpec.Hardware.Devices.VGPUDevices[0].ProfileName))
+			Expect(pciBacking1.Vgpu).To(Equal((*vmClassSpec.Hardware.Devices.VGPUDevices.Default)[0].ProfileName))
 
 			dSpec2 := configSpec.DeviceChange[1].GetVirtualDeviceConfigSpec()
 			dev2, ok2 := dSpec2.Device.(*vimtypes.VirtualPCIPassthrough)
@@ -2563,9 +2582,26 @@ var _ = Describe("ConfigSpecFromVMClassDevices", func() {
 			pciDev2 := dev2.GetVirtualDevice()
 			pciBacking2, ok2 := pciDev2.Backing.(*vimtypes.VirtualPCIPassthroughDynamicBackingInfo)
 			Expect(ok2).To(BeTrue())
-			Expect(pciBacking2.AllowedDevice[0].DeviceId).To(BeEquivalentTo(vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices[0].DeviceID))
-			Expect(pciBacking2.AllowedDevice[0].VendorId).To(BeEquivalentTo(vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices[0].VendorID))
-			Expect(pciBacking2.CustomLabel).To(Equal(vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices[0].CustomLabel))
+			Expect(pciBacking2.AllowedDevice[0].DeviceId).To(BeEquivalentTo((*vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices.Default)[0].DeviceID))
+			Expect(pciBacking2.AllowedDevice[0].VendorId).To(BeEquivalentTo((*vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices.Default)[0].VendorID))
+			Expect(pciBacking2.CustomLabel).To(Equal((*vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices.Default)[0].CustomLabel))
+
+			dSpec3 := configSpec.DeviceChange[3].GetVirtualDeviceConfigSpec()
+			dev3, ok3 := dSpec3.Device.(*vimtypes.VirtualPCIPassthrough)
+			Expect(ok3).To(BeTrue())
+			pciBacking3 := dev3.Backing.(*vimtypes.VirtualPCIPassthroughDynamicBackingInfo)
+			Expect(pciBacking3.AllowedDevice[0].DeviceId).To(BeEquivalentTo(31))
+			Expect(pciBacking3.CustomLabel).To(Equal("second-label"))
+		})
+
+		When("DirectPath device count exceeds the expansion cap", func() {
+			BeforeEach(func() {
+				devices := []vmopv1.DynamicDirectPathIODevice{{VendorID: 20, DeviceID: 30, Count: vmopv1.MaxClassDeviceExpansion + 1}}
+				vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices = &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &devices}
+			})
+			It("returns an error before expanding the list", func() {
+				Expect(configErr).To(MatchError(ContainSubstring("exceeds maximum")))
+			})
 		})
 	})
 })
@@ -2590,13 +2626,13 @@ var _ = Describe("ClassConfigSpecFromClassSpec", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		vgpuDefault := []vmopv1.VGPUDevice{{ProfileName: "profile"}}
-		ddpioDefault := []vmopv1.DynamicDirectPathIODevice{{VendorID: 20, DeviceID: 30}}
+		ddpioDefault := []vmopv1.DynamicDirectPathIODevice{{VendorID: 20, DeviceID: 30, Count: 2}}
 		classSpec := vmopv1.VirtualMachineClassSpec{
 			ConfigSpec: raw,
 			Hardware: vmopv1.VirtualMachineClassHardware{
 				Devices: vmopv1.VirtualDevices{
-					VGPUDevices:                vgpuDefault,
-					DynamicDirectPathIODevices: ddpioDefault,
+					VGPUDevices:                &vmopv1.VGPUDeviceListPolicy{Default: &vgpuDefault},
+					DynamicDirectPathIODevices: &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &ddpioDefault},
 				},
 			},
 		}

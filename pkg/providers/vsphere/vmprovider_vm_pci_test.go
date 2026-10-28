@@ -38,21 +38,19 @@ func vmPCITests() {
 
 		vmClass, vm = newVMTestObjects("test-vm")
 
-		// For old behavior, we'll fallback to these standalone fields when the
-		// class does not have a ConfigSpec.
+		// Include class device defaults when the class does not have a ConfigSpec.
+		vgpuDefault := []vmopv1.VGPUDevice{{
+			ProfileName: "profile-from-class-without-class-as-config-fss",
+		}}
+		ddpioDefault := []vmopv1.DynamicDirectPathIODevice{{
+			VendorID:    59,
+			DeviceID:    60,
+			Count:       1,
+			CustomLabel: "label-from-class-without-class-as-config-fss",
+		}}
 		vmClass.Spec.Hardware.Devices = vmopv1.VirtualDevices{
-			VGPUDevices: []vmopv1.VGPUDevice{
-				{
-					ProfileName: "profile-from-class-without-class-as-config-fss",
-				},
-			},
-			DynamicDirectPathIODevices: []vmopv1.DynamicDirectPathIODevice{
-				{
-					VendorID:    59,
-					DeviceID:    60,
-					CustomLabel: "label-from-class-without-class-as-config-fss",
-				},
-			},
+			VGPUDevices:                &vmopv1.VGPUDeviceListPolicy{Default: &vgpuDefault},
+			DynamicDirectPathIODevices: &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &ddpioDefault},
 		}
 	})
 

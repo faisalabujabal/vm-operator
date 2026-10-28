@@ -15,6 +15,10 @@ import (
 	"github.com/vmware-tanzu/vm-operator/api/utilconversion"
 )
 
+// MaxClassDeviceExpansion bounds allocation when expanding counted devices.
+// It is a conversion and configuration safety limit, not a hardware capability.
+const MaxClassDeviceExpansion = 10000
+
 // FixedClassResource converts a legacy scalar into a fixed class range.
 func FixedClassResource(value resource.Quantity) *ResourceQuantityRange {
 	minimum, maximum, def := value.DeepCopy(), value.DeepCopy(), value.DeepCopy()
@@ -58,6 +62,11 @@ func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
 		restoreUnchangedClassPolicy(&group.dst.CPU, group.preserved.CPU, group.projected.CPU)
 		restoreUnchangedClassPolicy(&group.dst.Memory, group.preserved.Memory, group.projected.Memory)
 	}
+
+	restoreUnchangedClassPolicy(&dst.Hardware.Devices.VGPUDevices,
+		preserved.Hardware.Devices.VGPUDevices, projected.Hardware.Devices.VGPUDevices)
+	restoreUnchangedClassPolicy(&dst.Hardware.Devices.DynamicDirectPathIODevices,
+		preserved.Hardware.Devices.DynamicDirectPathIODevices, projected.Hardware.Devices.DynamicDirectPathIODevices)
 }
 
 func restoreUnchangedClassPolicy[T any](dst *T, preserved, projected T) {

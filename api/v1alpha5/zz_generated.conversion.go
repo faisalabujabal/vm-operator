@@ -2807,7 +2807,7 @@ func autoConvert_v1alpha5_VirtualMachineClassSpec_To_v1alpha6_VirtualMachineClas
 	// WARNING: in.Policies requires manual conversion: does not exist in peer-type
 	out.Description = in.Description
 	out.ConfigSpec = *(*json.RawMessage)(unsafe.Pointer(&in.ConfigSpec))
-	out.ReservedProfileID = in.ReservedProfileID
+	// WARNING: in.ReservedProfileID requires manual conversion: does not exist in peer-type
 	out.ReservedSlots = in.ReservedSlots
 	return nil
 }
@@ -2820,7 +2820,7 @@ func autoConvert_v1alpha6_VirtualMachineClassSpec_To_v1alpha5_VirtualMachineClas
 	// WARNING: in.Resources requires manual conversion: does not exist in peer-type
 	out.Description = in.Description
 	out.ConfigSpec = *(*json.RawMessage)(unsafe.Pointer(&in.ConfigSpec))
-	out.ReservedProfileID = in.ReservedProfileID
+	// WARNING: in.ReservedProfileName requires manual conversion: does not exist in peer-type
 	out.ReservedSlots = in.ReservedSlots
 	return nil
 }

@@ -489,20 +489,50 @@ var _ = Describe("CreateConfigSpec", func() {
 			})
 		})
 
+		When("only raw ConfigSpec supplies a reserved profile", func() {
+			BeforeEach(func() {
+				vmClassSpec.ReservedProfileName = nil
+				classConfigSpec.ExtraConfig = []vimtypes.BaseOptionValue{
+					&vimtypes.OptionValue{Key: constants.ExtraConfigReservedProfileID, Value: "legacy-raw-profile"},
+				}
+			})
+
+			It("preserves the legacy reservation", func() {
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(constants.ExtraConfigReservedProfileID)
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(Equal("legacy-raw-profile"))
+			})
+		})
+
 		When("VM Class has reserved profile ID", func() {
 			BeforeEach(func() {
-				vmClassSpec.ReservedProfileID = "my-profile-id"
+				vmClassSpec.ReservedProfileName = &vmopv1.EnumPolicy{Default: ptr.To("my-profile-id")}
 			})
 			Specify("configSpec should have the expected ExtraConfig value", func() {
-				profileID, _ := object.OptionValueList(
-					configSpec.ExtraConfig).GetString(
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(
 					constants.ExtraConfigReservedProfileID)
-				Expect(profileID).To(Equal(vmClassSpec.ReservedProfileID))
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(BeAssignableToTypeOf(""))
+				Expect(profileID).To(Equal(*vmClassSpec.ReservedProfileName.Default))
 
 				namespacedName, _ := object.OptionValueList(
 					configSpec.ExtraConfig).GetString(
 					constants.ExtraConfigVMServiceNamespacedName)
 				Expect(namespacedName).To(Equal(vm.NamespacedName()))
+			})
+		})
+
+		When("VM Class allows one reserved profile without an explicit default", func() {
+			BeforeEach(func() {
+				allowed := []string{"only-profile"}
+				vmClassSpec.ReservedProfileName = &vmopv1.EnumPolicy{Allowed: &allowed}
+			})
+			It("uses the sole allowed profile as a string value", func() {
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(
+					constants.ExtraConfigReservedProfileID)
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(BeAssignableToTypeOf(""))
+				Expect(profileID).To(Equal("only-profile"))
 			})
 		})
 

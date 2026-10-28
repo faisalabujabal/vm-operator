@@ -147,15 +147,15 @@ func vmClassHash(ctx *pkgctx.VirtualMachineClassContext, class *vmopv1.VirtualMa
 	}
 
 	data := struct {
-		ConfigSpec        vimtypes.VirtualMachineConfigSpec   `json:"configSpec"`
-		Hardware          vmopv1.VirtualMachineClassHardware  `json:"hardware"`
-		Resources         vmopv1.VirtualMachineClassResources `json:"resources"`
-		ReservedProfileID string                              `json:"reservedProfileID,omitempty"`
+		ConfigSpec          vimtypes.VirtualMachineConfigSpec   `json:"configSpec"`
+		Hardware            vmopv1.VirtualMachineClassHardware  `json:"hardware"`
+		Resources           vmopv1.VirtualMachineClassResources `json:"resources"`
+		ReservedProfileName *vmopv1.EnumPolicy                  `json:"reservedProfileName,omitempty"`
 	}{
 		configSpec,
 		class.Spec.Hardware,
 		class.Spec.Resources,
-		class.Spec.ReservedProfileID,
+		class.Spec.ReservedProfileName,
 	}
 
 	b, err := json.Marshal(data)

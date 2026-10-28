@@ -398,8 +398,9 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				var restored vmopv1.VirtualMachineClass
 				Expect(spoke.ConvertTo(&restored)).To(Succeed())
 				Expect(restored.Spec.ReservedProfileName).To(BeNil())
-				Expect(restored.Spec.Resources).To(Equal(hub.Spec.Resources))
-				Expect(restored.Spec.ReservedSlots).To(Equal(hub.Spec.ReservedSlots))
+				expected := hub.Spec.DeepCopy()
+				expected.ReservedProfileName = nil
+				Expect(restored.Spec).To(Equal(*expected))
 			})
 
 			It("preserves nil, explicit zero and empty list policy values", func() {

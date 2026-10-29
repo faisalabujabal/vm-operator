@@ -2605,7 +2605,7 @@ var _ = Describe("ClassConfigSpecFromClassSpec", func() {
 	It("projects advanced defaults into vSphere configuration behind the capability", func() {
 		ctx := pkgcfg.NewContextWithDefaultConfig()
 		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = true })
-		class := &vmopv1.VirtualMachineClassSpec{Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
+		class := &vmopv1.VirtualMachineClassSpec{Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: []vmopv1.VGPUDevice{{ProfileName: "preserved-profile"}}}}, Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
 			ChangeBlockTracking: &vmopv1.BoolPolicy{Default: ptr.To(false)},
 			PreferHTEnabled:     &vmopv1.BoolPolicy{Default: ptr.To(true)},
 			PNUMANodeAffinity:   &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{0, 2})},
@@ -2614,6 +2614,7 @@ var _ = Describe("ClassConfigSpecFromClassSpec", func() {
 		config, err := virtualmachine.ClassConfigSpecFromClassSpec(ctx, class)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.ChangeTrackingEnabled).To(HaveValue(BeFalse()))
+		Expect(config.DeviceChange).To(HaveLen(1))
 		extra := map[string]interface{}{}
 		for _, entry := range config.ExtraConfig {
 			v := entry.GetOptionValue()

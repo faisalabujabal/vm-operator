@@ -300,7 +300,7 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				hub := vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: &vmopv1.BoolPolicy{}}}}
 				Expect(spoke.ConvertTo(&hub)).To(Succeed())
 				Expect(hub.Spec.Advanced).To(BeNil())
-				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"extraConfig":[{"key":"numa.nodeAffinity","value":"0,0"},{"key":"null.raw","value":null},{"key":"null.typed","value":{"_typeName":"string","_value":null}}]}`))
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","extraConfig":[{"key":"numa.nodeAffinity","value":"0,0"},{"key":"null.raw","value":null},{"key":"null.typed","value":{"_typeName":"string","_value":null}}]}`))
 			})
 			It("overlays typed ExtraConfig by key without duplicates and retains unrelated raw properties", func() {
 				f := false

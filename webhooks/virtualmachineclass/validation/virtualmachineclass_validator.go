@@ -23,6 +23,7 @@ import (
 
 	"github.com/vmware-tanzu/vm-operator/pkg/builder"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
+	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 	"github.com/vmware-tanzu/vm-operator/webhooks/common"
 )
 
@@ -72,6 +73,7 @@ func (v validator) ValidateCreate(ctx *pkgctx.WebhookRequestContext) admission.R
 	var fieldErrs field.ErrorList
 
 	fieldErrs = append(fieldErrs, v.validatePolicies(ctx, vmClass)...)
+	fieldErrs = append(fieldErrs, vmclass.ValidateAdvancedPolicies(&vmClass.Spec)...)
 
 	validationErrs := make([]string, 0, len(fieldErrs))
 	for _, fieldErr := range fieldErrs {
@@ -86,13 +88,15 @@ func (v validator) ValidateDelete(*pkgctx.WebhookRequestContext) admission.Respo
 }
 
 func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.Response {
-	// TODO: ValidateUpdate does not call validatePolicies like ValidateCreate
-	// does, so policy validation is currently skipped on update. Tracked
-	// separately; not fixed here since it's a behavior change unrelated to
-	// this lint pass.
-	var fieldErrs field.ErrorList
+	// Resource request/limit update validation remains a separate follow-up.
+	// Advanced policy relationships apply to both create and update.
+	vmClass, err := v.vmClassFromUnstructured(ctx.Obj)
+	if err != nil {
+		return webhook.Errored(http.StatusBadRequest, err)
+	}
+	fieldErrs := vmclass.ValidateAdvancedPolicies(&vmClass.Spec)
 	validationErrs := make([]string, 0, len(fieldErrs))
-	for _, fieldErr := range fieldErrs { //nolint:gosec // fieldErrs is always empty; ranging over it is a no-op, not an out-of-range access.
+	for _, fieldErr := range fieldErrs {
 		validationErrs = append(validationErrs, fieldErr.Error())
 	}
 

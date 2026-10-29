@@ -10,19 +10,18 @@ import vmopv1common "github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
 type Int32Set struct {
 	// Members describes the set, with ordering ignored.
 	// +required
-	// +kubebuilder:validation:XValidation:rule="self.all(n, n >= 0)",message="NUMA node IDs must be nonnegative"
 	// +listType=set
+	// +kubebuilder:validation:items:Minimum=0
 	Members []int32 `json:"members"`
 }
 
 // Int32SetPolicy describes a default set and approved alternative sets.
-// +kubebuilder:validation:XValidation:rule="!has(self.default) || self.default.all(n, n >= 0)",message="NUMA node IDs must be nonnegative"
 // +kubebuilder:validation:XValidation:rule="!has(self.required) || !self.required || !has(self.default) || size(self.default) > 0",message="a required set cannot have an empty default"
-// +kubebuilder:validation:XValidation:rule="!has(self.default) || !has(self.allowed) || self.allowed.exists(s, size(s.members) == size(self.default) && s.members.all(n, n in self.default))",message="default must be an allowed set"
 type Int32SetPolicy struct {
 	// Default is the set materialized on the VM.
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:items:Minimum=0
 	Default *[]int32 `json:"default,omitempty"`
 	// Allowed contains approved sets. Omission permits any valid set.
 	// +optional

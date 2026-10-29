@@ -149,6 +149,9 @@ func PromoteClassConfigSpec(spec *VirtualMachineClassSpec) error {
 	if err := promoteClassAdvanced(spec, doc); err != nil {
 		return err
 	}
+	if err := promoteClassCompute(spec, doc); err != nil {
+		return err
+	}
 	spec.ConfigSpec, err = doc.Marshal()
 	return err
 }
@@ -160,6 +163,9 @@ func ProjectClassConfigSpec(spec *VirtualMachineClassSpec) (json.RawMessage, err
 		return nil, err
 	}
 	if err := projectClassAdvanced(spec, doc); err != nil {
+		return nil, err
+	}
+	if err := projectClassCompute(spec, doc); err != nil {
 		return nil, err
 	}
 	return doc.Marshal()

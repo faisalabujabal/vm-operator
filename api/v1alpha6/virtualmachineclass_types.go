@@ -134,6 +134,12 @@ type VirtualMachineClassSpec struct {
 	// Advanced describes advanced VM configuration policies.
 	// +optional
 	Advanced *VirtualMachineClassAdvancedSpec `json:"advanced,omitempty"`
+	// CPUAdvanced describes advanced CPU presets and policies.
+	// +optional
+	CPUAdvanced *VirtualMachineClassCPUAdvancedSpec `json:"cpuAdvanced,omitempty"`
+	// MemoryAdvanced describes advanced memory presets and policies.
+	// +optional
+	MemoryAdvanced *VirtualMachineClassMemoryAdvancedSpec `json:"memoryAdvanced,omitempty"`
 
 	// +optional
 

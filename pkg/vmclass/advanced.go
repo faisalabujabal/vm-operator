@@ -5,6 +5,7 @@
 package vmclass
 
 import (
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"slices"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -14,8 +15,7 @@ import (
 	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 )
 
-func applyAdvancedDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachineClassSpec, reset bool) bool {
-	before := vm.Spec.Advanced.DeepCopy()
+func applyAdvancedDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachineClassSpec, reset bool) {
 	if vm.Spec.Advanced == nil {
 		vm.Spec.Advanced = &vmopv1.VirtualMachineAdvancedSpec{}
 	}
@@ -68,5 +68,29 @@ func applyAdvancedDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachin
 	if apiequality.Semantic.DeepEqual(d, &vmopv1.VirtualMachineAdvancedSpec{}) {
 		vm.Spec.Advanced = nil
 	}
-	return !apiequality.Semantic.DeepEqual(before, vm.Spec.Advanced)
+}
+
+// ValidateAdvancedPolicies validates advanced class policy relationships that
+// cannot be expressed within the CRD's CEL evaluation budget.
+
+func ValidateAdvancedPolicies(spec *vmopv1.VirtualMachineClassSpec) field.ErrorList {
+	if spec.Advanced == nil {
+		return nil
+	}
+	var errors field.ErrorList
+
+	policy := spec.Advanced.PNUMANodeAffinity
+	if policy == nil || policy.Default == nil || policy.Allowed == nil {
+		return errors
+	}
+	defaults := slices.Clone(*policy.Default)
+	slices.Sort(defaults)
+	for _, set := range *policy.Allowed {
+		members := slices.Clone(set.Members)
+		slices.Sort(members)
+		if slices.Equal(defaults, members) {
+			return errors
+		}
+	}
+	return append(errors, field.Invalid(field.NewPath("spec", "advanced", "pnumaNodeAffinity", "default"), *policy.Default, "default must be an allowed set"))
 }

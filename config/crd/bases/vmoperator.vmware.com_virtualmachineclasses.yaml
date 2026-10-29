@@ -1341,12 +1341,10 @@ spec:
                                 ignored.
                               items:
                                 format: int32
+                                minimum: 0
                                 type: integer
                               type: array
                               x-kubernetes-list-type: set
-                              x-kubernetes-validations:
-                              - message: NUMA node IDs must be nonnegative
-                                rule: self.all(n, n >= 0)
                           required:
                           - members
                           type: object
@@ -1356,6 +1354,7 @@ spec:
                         description: Default is the set materialized on the VM.
                         items:
                           format: int32
+                          minimum: 0
                           type: integer
                         type: array
                         x-kubernetes-list-type: set
@@ -1364,15 +1363,9 @@ spec:
                         type: boolean
                     type: object
                     x-kubernetes-validations:
-                    - message: NUMA node IDs must be nonnegative
-                      rule: '!has(self.default) || self.default.all(n, n >= 0)'
                     - message: a required set cannot have an empty default
                       rule: '!has(self.required) || !self.required || !has(self.default)
                         || size(self.default) > 0'
-                    - message: default must be an allowed set
-                      rule: '!has(self.default) || !has(self.allowed) || self.allowed.exists(s,
-                        size(s.members) == size(self.default) && s.members.all(n,
-                        n in self.default))'
                   preferHtEnabled:
                     description: PreferHTEnabled prefers hyperthreads of the same
                       physical core.

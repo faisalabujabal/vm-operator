@@ -218,6 +218,50 @@ var _ = Describe("Class boot defaults", Label(testlabels.Mutation, testlabels.AP
 		Expect(vm.Spec.BootOptions.BootDelay.Duration).To(BeZero())
 		Expect(vm.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
 	})
+	DescribeTable("materializes retry delays only for an enabled effective retry",
+		func(raw, retrySet, enabled, tenantEnabled, reset bool) {
+			vm := &vmopv1.VirtualMachine{}
+			if tenantEnabled {
+				vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootRetry: vmopv1.VirtualMachineBootOptionsBootRetryEnabled, BootRetryDelay: &metav1.Duration{Duration: time.Second}}
+			}
+			spec := vmopv1.VirtualMachineClassSpec{BootOptions: &vmopv1.VirtualMachineClassBootOptions{BootRetryDelay: vmopv1.FixedClassLong(1500)}}
+			if retrySet {
+				spec.BootOptions.BootRetry = vmopv1.FixedClassBool(enabled)
+			}
+			if raw {
+				var err error
+				spec.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(&spec)
+				Expect(err).NotTo(HaveOccurred())
+				spec.BootOptions = nil
+			}
+			applyTestBootDefaults(vm, spec, reset)
+			if !reset && tenantEnabled && !retrySet {
+				Expect(vm.Spec.BootOptions.BootRetry).To(Equal(vmopv1.VirtualMachineBootOptionsBootRetryEnabled))
+				Expect(vm.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
+			} else if vm.Spec.BootOptions != nil {
+				Expect(vm.Spec.BootOptions.BootRetryDelay).To(BeNil())
+			}
+			// Materialization must not discard an inactive class/provider preset.
+			projected, err := vmopv1.ProjectClassConfigSpec(&spec)
+			Expect(err).NotTo(HaveOccurred())
+			doc, err := vmopv1.ParseClassConfigSpec(projected)
+			Expect(err).NotTo(HaveOccurred())
+			var delay int64
+			present, err := doc.Get("bootOptions.bootRetryDelay", &delay)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(present).To(BeTrue())
+			Expect(delay).To(Equal(int64(1500)))
+		},
+		Entry("typed disabled", false, true, false, false, false),
+		Entry("raw disabled", true, true, false, false, false),
+		Entry("typed omitted", false, false, false, false, false),
+		Entry("raw omitted", true, false, false, false, false),
+		Entry("typed omitted preserves tenant enabled", false, false, false, true, false),
+		Entry("raw omitted preserves tenant enabled", true, false, false, true, false),
+		Entry("typed disabled clears previous enabled on class change", false, true, false, true, true),
+		Entry("raw disabled clears previous enabled on class change", true, true, false, true, true),
+		Entry("omitted clears previous enabled on class change", false, false, false, true, true),
+	)
 	It("keeps inline values when the create class has no default and clears them on a class change", func() {
 		vm := &vmopv1.VirtualMachine{}
 		vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootDelay: &metav1.Duration{Duration: time.Second}, Firmware: vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI}

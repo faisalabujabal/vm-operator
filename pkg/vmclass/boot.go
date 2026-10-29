@@ -45,9 +45,14 @@ func applyBootDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachineCla
 		if value := vmopv1.ClassLongDefault(defaults.BootDelay); value != nil {
 			boot.BootDelay = &metav1.Duration{Duration: time.Duration(*value) * time.Millisecond}
 		}
-		if value := vmopv1.ClassLongDefault(defaults.BootRetryDelay); value != nil {
+		if value := vmopv1.ClassLongDefault(defaults.BootRetryDelay); value != nil && boot.BootRetry == vmopv1.VirtualMachineBootOptionsBootRetryEnabled {
 			boot.BootRetryDelay = &metav1.Duration{Duration: time.Duration(*value) * time.Millisecond}
 		}
+	}
+	// vSphere retains an inactive retry delay, but the VM API only accepts it
+	// while retry is enabled. Preserve the class/provider preset independently.
+	if boot.BootRetry != vmopv1.VirtualMachineBootOptionsBootRetryEnabled {
+		boot.BootRetryDelay = nil
 	}
 	if hadBootOptions || !apiequality.Semantic.DeepEqual(boot, &vmopv1.VirtualMachineBootOptions{}) {
 		vm.Spec.BootOptions = boot

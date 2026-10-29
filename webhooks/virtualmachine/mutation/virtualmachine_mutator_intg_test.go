@@ -116,6 +116,45 @@ func intgTestsMutating() {
 			Expect(*actual.Spec.MemoryAdvanced.ReservationLockedToMax).To(BeTrue())
 			Expect(actual.Spec.Resources.Requests.Memory).To(BeNil())
 		})
+		DescribeTable("admits inactive class retry delays without an invalid VM delay",
+			func(raw, retrySet, tenantEnabled bool) {
+				testCtx := ctx
+				class := builder.DummyVirtualMachineClassGenName()
+				class.Namespace = ctx.Namespace
+				class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootRetryDelay: vmopv1.FixedClassLong(1500)}
+				if retrySet {
+					class.Spec.BootOptions.BootRetry = vmopv1.FixedClassBool(false)
+				}
+				if raw {
+					var err error
+					class.Spec.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(&class.Spec)
+					Expect(err).NotTo(HaveOccurred())
+					class.Spec.BootOptions = nil
+				}
+				Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+				DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, class)).To(Succeed()) })
+				ctx.vm.Spec.ClassName = class.Name
+				if tenantEnabled {
+					ctx.vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootRetry: vmopv1.VirtualMachineBootOptionsBootRetryEnabled}
+				}
+				Expect(ctx.Client.Create(ctx, ctx.vm)).To(Succeed())
+				DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, testCtx.vm)).To(Succeed()) })
+				actual := &vmopv1.VirtualMachine{}
+				Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(ctx.vm), actual)).To(Succeed())
+				if tenantEnabled && !retrySet {
+					Expect(actual.Spec.BootOptions.BootRetry).To(Equal(vmopv1.VirtualMachineBootOptionsBootRetryEnabled))
+					Expect(actual.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
+				} else if actual.Spec.BootOptions != nil {
+					Expect(actual.Spec.BootOptions.BootRetryDelay).To(BeNil())
+				}
+			},
+			Entry("typed disabled", false, true, false),
+			Entry("raw disabled", true, true, false),
+			Entry("typed omitted", false, false, false),
+			Entry("raw omitted", true, false, false),
+			Entry("typed omitted preserves tenant enabled", false, false, true),
+			Entry("raw omitted preserves tenant enabled", true, false, true),
+		)
 		It("persists class-owned size through API-server admission", func() {
 			testCtx := ctx
 			class := builder.DummyVirtualMachineClassGenName()

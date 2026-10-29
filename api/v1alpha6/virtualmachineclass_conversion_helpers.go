@@ -29,6 +29,23 @@ func ClassResourceDefault(value *ResourceQuantityRange) resource.Quantity {
 	return value.Default.DeepCopy()
 }
 
+// FixedClassProfile converts a legacy reserved profile ID to a policy.
+func FixedClassProfile(value string) *EnumPolicy {
+	if value == "" {
+		return nil
+	}
+	allowed, required := []string{value}, true
+	return &EnumPolicy{Default: &value, Allowed: &allowed, Required: &required}
+}
+
+// ClassProfileDefault returns the selected class profile for an older API.
+func ClassProfileDefault(value *EnumPolicy) string {
+	if value := ClassEnumDefault(value); value != nil {
+		return *value
+	}
+	return ""
+}
+
 // FixedClassResourcePair converts legacy CPU and memory quantities to fixed
 // ranges with independent copies of their bounds and defaults.
 func FixedClassResourcePair(cpu, memory resource.Quantity) VirtualMachineClassResourceSpec {
@@ -42,6 +59,70 @@ func FixedClassResourcePair(cpu, memory resource.Quantity) VirtualMachineClassRe
 // legacy quantities. Missing defaults project to zero quantities.
 func ClassResourcePairDefaults(in VirtualMachineClassResourceSpec) (cpu, memory resource.Quantity) {
 	return ClassResourceDefault(in.CPU), ClassResourceDefault(in.Memory)
+}
+
+// FixedClassBool converts a legacy preset into a fixed boolean policy.
+func FixedClassBool(value bool) *BoolPolicy {
+	allowOverride := false
+	return &BoolPolicy{Default: &value, AllowOverride: &allowOverride}
+}
+
+// ClassBoolDefault returns an isolated boolean default, preserving omission.
+func ClassBoolDefault(policy *BoolPolicy) *bool {
+	if policy == nil {
+		return nil
+	}
+	return classScalarCopy(policy.Default)
+}
+
+// FixedClassInt converts a legacy 32-bit preset into a fixed range.
+func FixedClassInt(value int32) *IntRange {
+	minimum, maximum, def := value, value, value
+	return &IntRange{Min: &minimum, Max: &maximum, Default: &def}
+}
+
+// ClassIntDefault returns an isolated integer default, preserving omission.
+func ClassIntDefault(policy *IntRange) *int32 {
+	if policy == nil {
+		return nil
+	}
+	return classScalarCopy(policy.Default)
+}
+
+// FixedClassLong converts a legacy 64-bit preset into a fixed range.
+func FixedClassLong(value int64) *LongRange {
+	minimum, maximum, def := value, value, value
+	return &LongRange{Min: &minimum, Max: &maximum, Default: &def}
+}
+
+// ClassLongDefault returns an isolated integer default, preserving omission.
+func ClassLongDefault(policy *LongRange) *int64 {
+	if policy == nil {
+		return nil
+	}
+	return classScalarCopy(policy.Default)
+}
+
+// ClassEnumDefault returns the explicit or sole allowed scalar default.
+func ClassEnumDefault(policy *EnumPolicy) *string {
+	if policy == nil {
+		return nil
+	}
+	if policy.Default != nil {
+		return classScalarCopy(policy.Default)
+	}
+	if policy.Allowed != nil && len(*policy.Allowed) == 1 {
+		return classScalarCopy(&(*policy.Allowed)[0])
+	}
+	return nil
+}
+
+func classScalarCopy[T ~bool | ~int32 | ~int64 | ~string](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 // RestoreClassPolicies restores fields an older API cannot represent unless
@@ -58,6 +139,8 @@ func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
 		restoreUnchangedClassPolicy(&group.dst.CPU, group.preserved.CPU, group.projected.CPU)
 		restoreUnchangedClassPolicy(&group.dst.Memory, group.preserved.Memory, group.projected.Memory)
 	}
+	restoreUnchangedClassPolicy(&dst.ConfigSpec, preserved.ConfigSpec, projected.ConfigSpec)
+	restoreUnchangedClassPolicy(&dst.ReservedProfileName, preserved.ReservedProfileName, projected.ReservedProfileName)
 }
 
 func restoreUnchangedClassPolicy[T any](dst *T, preserved, projected T) {

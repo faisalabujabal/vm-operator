@@ -622,16 +622,40 @@ spec:
                         type: array
                     type: object
                 type: object
-              reservedProfileID:
+              reservedProfileName:
                 description: |-
-                  ReservedProfileID describes the reservation profile associated with
-                  the namespace-scoped VirtualMachineClass object.
-                type: string
+                  ReservedProfileName selects the reservation profile for the class.
+                  A default requires an explicit list of allowed profile names.
+                properties:
+                  allowed:
+                    description: Allowed contains the permitted values; omission differs
+                      from an empty list.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                  default:
+                    description: Default is the value supplied by this class.
+                    type: string
+                  required:
+                    description: Required disallows an empty value after defaulting.
+                    type: boolean
+                type: object
+                x-kubernetes-validations:
+                - message: a reserved profile default requires allowed profiles
+                  rule: '!has(self.default) || has(self.allowed)'
+                - message: multiple allowed values require a default
+                  rule: '!has(self.allowed) || size(self.allowed) <= 1 || has(self.default)'
+                - message: default must be allowed
+                  rule: '!has(self.default) || !has(self.allowed) || self.default
+                    in self.allowed'
               reservedSlots:
                 description: |-
                   ReservedSlots describes the number of slots reserved for VMs that use
                   this VirtualMachineClass.
-                  This field is only valid in conjunction with reservedProfileID.
+                  This field is only valid in conjunction with reservedProfileName.
+
+                  Deprecated: retained for compatibility with older namespace writers.
                 format: int32
                 minimum: 0
                 type: integer

@@ -70,8 +70,8 @@ func TestVirtualMachineClassConversion(t *testing.T) {
 					},
 				},
 				Spec: vmopv1.VirtualMachineClassSpec{
-					ReservedProfileID: "my-profile-id",
-					ReservedSlots:     4,
+					ReservedProfileName: vmopv1.FixedClassProfile("my-profile-id"),
+					ReservedSlots:       4,
 				},
 			}
 			hubSpokeHub(g, &hub, &vmopv1.VirtualMachineClass{}, &vmopv1a1.VirtualMachineClass{})
@@ -84,8 +84,8 @@ func TestVirtualMachineClassConversion(t *testing.T) {
 					Namespace: "my-namespace",
 				},
 				Spec: vmopv1.VirtualMachineClassSpec{
-					ReservedProfileID: "my-profile-id",
-					ReservedSlots:     4,
+					ReservedProfileName: vmopv1.FixedClassProfile("my-profile-id"),
+					ReservedSlots:       4,
 				},
 			}
 			hubSpokeHub(g, &hub, &vmopv1.VirtualMachineClass{}, &vmopv1a1.VirtualMachineClass{})

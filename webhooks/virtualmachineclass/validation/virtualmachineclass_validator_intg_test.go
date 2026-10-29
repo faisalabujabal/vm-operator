@@ -135,6 +135,25 @@ func intgTestsValidateCreate() {
 		Entry("rejects CPU size defaults above int32", func(class *vmopv1.VirtualMachineClass) {
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Default: ptr.To(resource.MustParse("2147483648"))}
 		}, true),
+		Entry("accepts enum default in allowed values", func(class *vmopv1.VirtualMachineClass) {
+			allowed := []string{"gold", "silver"}
+			class.Spec.ReservedProfileName = &vmopv1.EnumPolicy{Default: ptr.To("gold"), Allowed: &allowed}
+		}, false),
+		Entry("rejects enum default outside allowed values", func(class *vmopv1.VirtualMachineClass) {
+			allowed := []string{"silver"}
+			class.Spec.ReservedProfileName = &vmopv1.EnumPolicy{Default: ptr.To("gold"), Allowed: &allowed}
+		}, true),
+		Entry("rejects a reserved profile default without allowed values", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.ReservedProfileName = &vmopv1.EnumPolicy{Default: ptr.To("gold")}
+		}, true),
+		Entry("rejects multiple allowed profiles without a default", func(class *vmopv1.VirtualMachineClass) {
+			allowed := []string{"gold", "silver"}
+			class.Spec.ReservedProfileName = &vmopv1.EnumPolicy{Allowed: &allowed}
+		}, true),
+		Entry("accepts a single allowed profile without an explicit default", func(class *vmopv1.VirtualMachineClass) {
+			allowed := []string{"gold"}
+			class.Spec.ReservedProfileName = &vmopv1.EnumPolicy{Allowed: &allowed}
+		}, false),
 	)
 
 }

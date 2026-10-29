@@ -317,7 +317,9 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(hub.Spec.Resources.Requests.Memory.Default.String()).To(Equal("1Gi"))
 				Expect(hub.Spec.Resources.Limits.CPU.Default.String()).To(Equal("4"))
 				Expect(hub.Spec.Resources.Limits.Memory.Default.String()).To(Equal("8Gi"))
-				Expect(hub.Spec.ReservedProfileID).To(Equal("profile-a"))
+				Expect(*hub.Spec.ReservedProfileName.Default).To(Equal("profile-a"))
+				Expect(*hub.Spec.ReservedProfileName.Allowed).To(Equal([]string{"profile-a"}))
+				Expect(*hub.Spec.ReservedProfileName.Required).To(BeTrue())
 				Expect(hub.Spec.ReservedSlots).To(BeZero())
 				Expect(hub.Spec.Hardware.Devices.VGPUDevices).To(Equal([]vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}))
 				Expect(hub.Spec.Hardware.Devices.DynamicDirectPathIODevices).To(Equal([]vmopv1.DynamicDirectPathIODevice{
@@ -367,8 +369,38 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(restored.Spec.Resources.Size.CPU.Max.String()).To(Equal("8"))
 				Expect(restored.Spec.Resources.Size.Memory).To(Equal(hub.Spec.Resources.Size.Memory))
 				Expect(restored.Spec.Hardware.Devices).To(Equal(hub.Spec.Hardware.Devices))
-				Expect(restored.Spec.ReservedProfileID).To(Equal("profile-b"))
+				Expect(*restored.Spec.ReservedProfileName.Default).To(Equal("profile-b"))
+				Expect(*restored.Spec.ReservedProfileName.Allowed).To(Equal([]string{"profile-b"}))
+				Expect(*restored.Spec.ReservedProfileName.Required).To(BeTrue())
 				Expect(restored.Spec.ReservedSlots).To(BeZero())
+			})
+
+			DescribeTable("preserves profile selection states through older clients",
+				func(policy *vmopv1.EnumPolicy) {
+					hub := classWithPolicies()
+					hub.Spec.ReservedProfileName = policy
+					spoke := version.newSpoke()
+					Expect(spoke.ConvertFrom(hub)).To(Succeed())
+					var restored vmopv1.VirtualMachineClass
+					Expect(spoke.ConvertTo(&restored)).To(Succeed())
+					Expect(restored.Spec).To(Equal(hub.Spec))
+				},
+				Entry("omitted policy", (*vmopv1.EnumPolicy)(nil)),
+				Entry("empty allowed list", &vmopv1.EnumPolicy{Allowed: &[]string{}}),
+				Entry("implicit single allowed profile", &vmopv1.EnumPolicy{Allowed: &[]string{"profile-a"}}),
+			)
+
+			It("honors an older writer clearing the profile without losing resource ranges", func() {
+				hub := classWithPolicies()
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				Expect(json.Unmarshal([]byte(`{"spec":{"reservedProfileID":""}}`), spoke)).To(Succeed())
+				var restored vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec.ReservedProfileName).To(BeNil())
+				expected := hub.Spec.DeepCopy()
+				expected.ReservedProfileName = nil
+				Expect(restored.Spec).To(Equal(*expected))
 			})
 
 			It("preserves nil, explicit zero and empty list policy values", func() {
@@ -514,6 +546,9 @@ var _ = Describe("VMClass allocation conversions", Label("api"), func() {
 func classWithPolicies() *vmopv1.VirtualMachineClass {
 	minimum, maximum, def := resource.MustParse("2"), resource.MustParse("16"), resource.MustParse("4")
 	memory := resource.MustParse("4Gi")
+	profile := "profile-a"
+	profiles := []string{"profile-a", "profile-b"}
+	required := true
 	devices := []vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}
 	return &vmopv1.VirtualMachineClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "class", Namespace: "tenant"},
@@ -522,9 +557,9 @@ func classWithPolicies() *vmopv1.VirtualMachineClass {
 				CPU:    &vmopv1.ResourceQuantityRange{Min: &minimum, Max: &maximum, Default: &def},
 				Memory: &vmopv1.ResourceQuantityRange{Default: &memory},
 			}},
-			Hardware:          vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: devices}},
-			ReservedProfileID: "profile-a",
-			ReservedSlots:     4,
+			Hardware:            vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: devices}},
+			ReservedProfileName: &vmopv1.EnumPolicy{Default: &profile, Allowed: &profiles, Required: &required},
+			ReservedSlots:       4,
 		},
 	}
 }

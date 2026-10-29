@@ -15,8 +15,8 @@ import (
 // unrelated values into vSphere types or losing their JSON representation.
 type ClassConfigSpecDocument struct {
 	original json.RawMessage
-	root map[string]json.RawMessage
-	dirty bool
+	root     map[string]json.RawMessage
+	dirty    bool
 }
 
 // ParseClassConfigSpec parses a class ConfigSpec while preserving unknown fields.

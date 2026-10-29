@@ -66,18 +66,18 @@ type LongRange struct {
 	Default *int64 `json:"default,omitempty"`
 }
 
-// EnumPolicy describes a scalar default and permitted nonempty values.
+// EnumPolicy describes a default and the permitted scalar values.
 // +kubebuilder:validation:XValidation:rule="!has(self.allowed) || size(self.allowed) <= 1 || has(self.default)",message="multiple allowed values require a default"
-// +kubebuilder:validation:XValidation:rule="!has(self.default) || self.default == '' || !has(self.allowed) || self.default in self.allowed",message="default must be allowed"
+// +kubebuilder:validation:XValidation:rule="!has(self.default) || !has(self.allowed) || self.default in self.allowed",message="default must be allowed"
 type EnumPolicy struct {
-	// Default is the value supplied by the class.
+	// Default is the value supplied by this class.
 	// +optional
 	Default *string `json:"default,omitempty"`
-	// Allowed contains permitted nonempty values; omission differs from [].
+	// Allowed contains the permitted values; omission differs from an empty list.
 	// +optional
 	// +listType=set
 	Allowed *[]string `json:"allowed,omitempty"`
-	// Required disallows an empty result after defaulting.
+	// Required disallows an empty value after defaulting.
 	// +optional
 	Required *bool `json:"required,omitempty"`
 }

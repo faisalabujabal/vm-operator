@@ -29,6 +29,23 @@ func ClassResourceDefault(value *ResourceQuantityRange) resource.Quantity {
 	return value.Default.DeepCopy()
 }
 
+// FixedClassProfile converts a legacy reserved profile ID to a policy.
+func FixedClassProfile(value string) *EnumPolicy {
+	if value == "" {
+		return nil
+	}
+	allowed, required := []string{value}, true
+	return &EnumPolicy{Default: &value, Allowed: &allowed, Required: &required}
+}
+
+// ClassProfileDefault returns the selected class profile for an older API.
+func ClassProfileDefault(value *EnumPolicy) string {
+	if value := ClassEnumDefault(value); value != nil {
+		return *value
+	}
+	return ""
+}
+
 // FixedClassResourcePair converts legacy CPU and memory quantities to fixed
 // ranges with independent copies of their bounds and defaults.
 func FixedClassResourcePair(cpu, memory resource.Quantity) VirtualMachineClassResourceSpec {
@@ -123,6 +140,7 @@ func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
 		restoreUnchangedClassPolicy(&group.dst.Memory, group.preserved.Memory, group.projected.Memory)
 	}
 	restoreUnchangedClassPolicy(&dst.ConfigSpec, preserved.ConfigSpec, projected.ConfigSpec)
+	restoreUnchangedClassPolicy(&dst.ReservedProfileName, preserved.ReservedProfileName, projected.ReservedProfileName)
 }
 
 func restoreUnchangedClassPolicy[T any](dst *T, preserved, projected T) {

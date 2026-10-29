@@ -36,25 +36,24 @@ func promoteClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDoc
 	spec.Advanced = nil
 	a := &VirtualMachineClassAdvancedSpec{}
 	var cbt bool
-	if ok, err := doc.Get("changeTrackingEnabled", &cbt); err != nil {
-		return err
-	} else if ok {
+	if ok, err := doc.Get("changeTrackingEnabled", &cbt); err == nil && ok {
 		a.ChangeBlockTracking = FixedClassBool(cbt)
 		if err := doc.Delete("changeTrackingEnabled"); err != nil {
 			return err
 		}
 	}
 	var entries []json.RawMessage
+	// Unsupported legacy shapes remain in the residual document.
 	if _, err := doc.Get("extraConfig", &entries); err != nil {
-		return err
+		entries = nil
 	}
 	counts := map[string]int{}
 	for _, raw := range entries {
 		var item struct {
-			Key string `json:"key"`
+			Key *string `json:"key"`
 		}
-		if json.Unmarshal(raw, &item) == nil {
-			counts[item.Key]++
+		if json.Unmarshal(raw, &item) == nil && item.Key != nil {
+			counts[*item.Key]++
 		}
 	}
 	var residual []json.RawMessage
@@ -62,10 +61,7 @@ func promoteClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDoc
 	for _, raw := range entries {
 
 		item, err := classExtraConfigStringItem(raw)
-		if err != nil {
-			return err
-		}
-		if item == nil || counts[item.Key] != 1 {
+		if err != nil || item == nil || counts[item.Key] != 1 {
 			residual = append(residual, raw)
 			continue
 		}
@@ -138,10 +134,6 @@ func projectClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDoc
 			return err
 		}
 	}
-	var entries []json.RawMessage
-	if _, err := doc.Get("extraConfig", &entries); err != nil {
-		return err
-	}
 	values := []vmopv1common.KeyValuePair{}
 	if a.ExtraConfig != nil && a.ExtraConfig.Default != nil {
 		values = append(values, (*a.ExtraConfig.Default)...)
@@ -159,12 +151,16 @@ func projectClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDoc
 		values = append(values, vmopv1common.KeyValuePair{Key: "numa.nodeAffinity", Value: strings.Join(parts, ",")})
 	}
 
-	for _, value := range values {
-		var err error
-		entries, err = overlayClassExtraConfig(entries, value)
-		if err != nil {
-			return err
-		}
+	if len(values) == 0 {
+		return nil
+	}
+	var entries []json.RawMessage
+	if _, err := doc.Get("extraConfig", &entries); err != nil {
+		return err
+	}
+	entries, err := overlayClassExtraConfig(entries, values)
+	if err != nil {
+		return err
 	}
 
 	if len(entries) > 0 {
@@ -213,41 +209,65 @@ func decodeClassExtraConfigString(raw json.RawMessage, value *string) bool {
 	return json.Unmarshal(typed["_typeName"], &name) == nil && name == "string" && !bytes.Equal(bytes.TrimSpace(typed["_value"]), []byte("null")) && json.Unmarshal(typed["_value"], value) == nil
 }
 
-func overlayClassExtraConfig(entries []json.RawMessage, value vmopv1common.KeyValuePair) ([]json.RawMessage, error) {
-	result := make([]json.RawMessage, 0, len(entries)+1)
-	item := map[string]json.RawMessage{}
+// overlayClassExtraConfig decodes each raw entry once. Targeted duplicates
+// contribute unknown sibling fields to one replacement; untouched duplicates
+// and unsupported entries retain their original order and JSON. Typed keys use
+// their last value and appear in last-occurrence order, matching repeated overlay.
+func overlayClassExtraConfig(entries []json.RawMessage, values []vmopv1common.KeyValuePair) ([]json.RawMessage, error) {
+	last := make(map[string]int, len(values))
+	for i, value := range values {
+		last[value.Key] = i
+	}
+	items := make(map[string]map[string]json.RawMessage, len(last))
+	result := make([]json.RawMessage, 0, len(entries)+len(last))
 	for _, raw := range entries {
 		var candidate map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &candidate); err != nil {
-			return nil, fmt.Errorf("decode class ExtraConfig item: %w", err)
-		}
 		var key string
-		if json.Unmarshal(candidate["key"], &key) == nil && key == value.Key {
-			for name, field := range candidate {
-				item[name] = field
-			}
+		if json.Unmarshal(raw, &candidate) != nil || bytes.Equal(bytes.TrimSpace(candidate["key"]), []byte("null")) || json.Unmarshal(candidate["key"], &key) != nil {
+			result = append(result, raw)
 			continue
+		}
+		if _, targeted := last[key]; !targeted {
+			result = append(result, raw)
+			continue
+		}
+		item := items[key]
+		if item == nil {
+			item = map[string]json.RawMessage{}
+			items[key] = item
+		}
+		for name, field := range candidate {
+			item[name] = field
+		}
+	}
+	for i, value := range values {
+		if last[value.Key] != i {
+			continue
+		}
+		item := items[value.Key]
+		if item == nil {
+			item = map[string]json.RawMessage{}
+		}
+		if _, ok := item["_typeName"]; !ok {
+			item["_typeName"] = json.RawMessage(`"OptionValue"`)
+		}
+		key, err := json.Marshal(value.Key)
+		if err != nil {
+			return nil, err
+		}
+		item["key"] = key
+		encodedValue, err := json.Marshal(map[string]string{"_typeName": "string", "_value": value.Value})
+		if err != nil {
+			return nil, err
+		}
+		item["value"] = encodedValue
+		raw, err := json.Marshal(item)
+		if err != nil {
+			return nil, err
 		}
 		result = append(result, raw)
 	}
-	if _, ok := item["_typeName"]; !ok {
-		item["_typeName"] = json.RawMessage(`"OptionValue"`)
-	}
-	key, err := json.Marshal(value.Key)
-	if err != nil {
-		return nil, err
-	}
-	item["key"] = key
-	encodedValue, err := json.Marshal(map[string]string{"_typeName": "string", "_value": value.Value})
-	if err != nil {
-		return nil, err
-	}
-	item["value"] = encodedValue
-	raw, err := json.Marshal(item)
-	if err != nil {
-		return nil, err
-	}
-	return append(result, raw), nil
+	return result, nil
 }
 
 func classExtraConfigStringItem(raw json.RawMessage) (*vmopv1common.KeyValuePair, error) {
@@ -262,7 +282,7 @@ func classExtraConfigStringItem(raw json.RawMessage) (*vmopv1common.KeyValuePair
 // types or unknown metadata, so their original JSON remains in ConfigSpec.
 func classExtraConfigStringFields(item map[string]json.RawMessage) *vmopv1common.KeyValuePair {
 	var result vmopv1common.KeyValuePair
-	if json.Unmarshal(item["key"], &result.Key) != nil || !decodeClassExtraConfigString(item["value"], &result.Value) {
+	if bytes.Equal(bytes.TrimSpace(item["key"]), []byte("null")) || json.Unmarshal(item["key"], &result.Key) != nil || !decodeClassExtraConfigString(item["value"], &result.Value) {
 		return nil
 	}
 	if rawType, ok := item["_typeName"]; ok {

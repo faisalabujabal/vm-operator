@@ -218,7 +218,7 @@ var _ = Describe("Class boot defaults", Label(testlabels.Mutation, testlabels.AP
 		Expect(vm.Spec.BootOptions.BootDelay.Duration).To(BeZero())
 		Expect(vm.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
 	})
-	DescribeTable("derives only the existing EFI prerequisite for class secure boot",
+	DescribeTable("resolves class secure boot firmware without persisting an override",
 		func(imageFirmware, rawFirmware string, explicit vmopv1.VirtualMachineBootOptionsFirmwareType, missing bool, expected vmopv1.VirtualMachineBootOptionsFirmwareType) {
 			vm := &vmopv1.VirtualMachine{}
 			vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{Firmware: explicit}
@@ -234,19 +234,66 @@ var _ = Describe("Class boot defaults", Label(testlabels.Mutation, testlabels.AP
 				spec.ConfigSpec = []byte(`{"firmware":"` + rawFirmware + `"}`)
 			}
 			_, err := applyTestBootDefaultsWithObjects(vm, spec, false, objects...)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(vm.Spec.BootOptions.Firmware).To(Equal(explicit))
+			scheme := runtime.NewScheme()
+			Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+			class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Namespace: vm.Namespace, Name: vm.Spec.ClassName}, Spec: spec}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(append(objects, class)...).Build()
+			firmware, err := vmclass.ResolveBootFirmware(pkgcfg.NewContextWithDefaultConfig(), c, vm, nil)
 			if missing {
 				Expect(err).To(MatchError(ContainSubstring("resolve image firmware")))
 			} else {
 				Expect(err).NotTo(HaveOccurred())
-				Expect(vm.Spec.BootOptions.Firmware).To(Equal(expected))
+				Expect(firmware).To(Equal(string(expected)))
 			}
+			Expect(vm.Spec.BootOptions.Firmware).To(Equal(explicit))
 		},
 		Entry("image EFI", "efi", "", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false, vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI),
 		Entry("raw EFI fallback without image", "", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false, vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI),
-		Entry("image BIOS overrides raw EFI", "bios", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false, vmopv1.VirtualMachineBootOptionsFirmwareType("")),
+		Entry("image BIOS overrides raw EFI", "bios", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false, vmopv1.VirtualMachineBootOptionsFirmwareTypeBIOS),
 		Entry("explicit BIOS is preserved", "efi", "efi", vmopv1.VirtualMachineBootOptionsFirmwareTypeBIOS, false, vmopv1.VirtualMachineBootOptionsFirmwareTypeBIOS),
 		Entry("missing image does not fall back to raw EFI", "", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), true, vmopv1.VirtualMachineBootOptionsFirmwareType("")),
 	)
+	It("rechecks raw firmware on class changes and uses the selected immutable snapshot", func() {
+		ctx := pkgcfg.NewContextWithDefaultConfig()
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) {
+			c.Features.TelcoVMServiceAPI = true
+			c.Features.ImmutableClasses = true
+			c.Features.VMResizeCPUMemory = true
+		})
+		scheme := runtime.NewScheme()
+		Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+		oldSpec := vmopv1.VirtualMachineClassSpec{ConfigSpec: []byte(`{"firmware":"efi","bootOptions":{"efiSecureBootEnabled":true}}`)}
+		newClass := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "bios", Namespace: "tenant"}, Spec: vmopv1.VirtualMachineClassSpec{ConfigSpec: []byte(`{"firmware":"bios"}`)}}
+		snapshot := &vmopv1.VirtualMachineClassInstance{ObjectMeta: metav1.ObjectMeta{Name: "snapshot", Namespace: "tenant"}, Spec: vmopv1.VirtualMachineClassInstanceSpec{VirtualMachineClassSpec: oldSpec}}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(newClass, snapshot).Build()
+		vm := &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant"}, Spec: vmopv1.VirtualMachineSpec{ClassName: "old", Class: &common.LocalObjectRef{Name: "snapshot"}}}
+		provider := resourceProvider(func(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
+			return nil, nil
+		})
+		_, err := vmclass.ApplyDefaults(ctx, c, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vm.Spec.BootOptions.Firmware).To(BeEmpty())
+		firmware, err := vmclass.ResolveBootFirmware(ctx, c, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(firmware).To(Equal("efi"))
+		oldVM := vm.DeepCopy()
+		vm.Spec.ClassName = "bios"
+		_, err = vmclass.ApplyDefaults(ctx, c, provider, vm, oldVM)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vm.Spec.BootOptions.Firmware).To(BeEmpty())
+		firmware, err = vmclass.ResolveBootFirmware(ctx, c, vm, oldVM)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(firmware).To(Equal("bios"))
+		vm.Spec.Class = &common.LocalObjectRef{Name: "missing"}
+		_, err = vmclass.ResolveBootFirmware(ctx, c, vm, nil)
+		Expect(err).To(MatchError(ContainSubstring("resolve class instance")))
+		vm.Spec.Class = nil
+		vm.Spec.ClassName = "missing"
+		_, err = vmclass.ResolveBootFirmware(ctx, c, vm, nil)
+		Expect(err).To(MatchError(ContainSubstring("class not found")))
+	})
 	DescribeTable("materializes retry delays only for an enabled effective retry",
 		func(raw, retrySet, enabled, tenantEnabled, reset bool) {
 			vm := &vmopv1.VirtualMachine{}

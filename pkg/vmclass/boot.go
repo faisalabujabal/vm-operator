@@ -63,18 +63,13 @@ func applyBootDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachineCla
 	}
 }
 
-// applyBootFirmwarePrerequisite records the existing effective EFI firmware only
-// when a class secure-boot preset needs the VM API's explicit prerequisite.
-// General firmware defaulting remains with the existing provider path.
-func applyBootFirmwarePrerequisite(ctx context.Context, c ctrlclient.Client, vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachineClassSpec) error {
-	if spec.BootOptions == nil || vm.Spec.BootOptions == nil || vm.Spec.BootOptions.Firmware != "" {
-		return nil
+// ResolveBootFirmware returns the effective firmware using the provider's
+// existing VM, image, then selected class/snapshot precedence. It never writes
+// an inferred VM override, so a later class change can select new raw firmware.
+func ResolveBootFirmware(ctx context.Context, c ctrlclient.Client, vm, oldVM *vmopv1.VirtualMachine) (string, error) {
+	if boot := vm.Spec.BootOptions; boot != nil && boot.Firmware != "" {
+		return string(boot.Firmware), nil
 	}
-	secure := vmopv1.ClassBoolDefault(spec.BootOptions.EFISecureBoot)
-	if secure == nil || !*secure {
-		return nil
-	}
-	var firmware string
 	imageRef := vm.Spec.Image
 	if imageRef == nil && vm.Spec.ImageName != "" {
 		imageRef = &vmopv1.VirtualMachineImageRef{Name: vm.Spec.ImageName}
@@ -82,23 +77,26 @@ func applyBootFirmwarePrerequisite(ctx context.Context, c ctrlclient.Client, vm 
 	if imageRef != nil {
 		image, err := vmopv1util.GetImage(ctx, c, *imageRef, vm.Namespace)
 		if err != nil {
-			return fmt.Errorf("resolve image firmware for class secure boot: %w", err)
+			return "", fmt.Errorf("resolve image firmware for class secure boot: %w", err)
 		}
-		firmware = image.Status.Firmware
-	}
-	// Match CreateConfigSpec: a nonempty image firmware overrides raw class
-	// firmware. In particular, a BIOS image must never be switched to EFI.
-	if firmware == "" {
-		doc, err := vmopv1.ParseClassConfigSpec(spec.ConfigSpec)
-		if err != nil {
-			return err
-		}
-		if _, err := doc.Get("firmware", &firmware); err != nil {
-			return err
+		if image.Status.Firmware != "" {
+			return image.Status.Firmware, nil
 		}
 	}
-	if firmware == string(vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI) {
-		vm.Spec.BootOptions.Firmware = vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI
+	spec, err := resolveClassSpec(ctx, c, vm, oldVM)
+	if err != nil {
+		return "", err
 	}
-	return nil
+	if spec == nil {
+		return "", fmt.Errorf("resolve firmware for class %s: class not found", vm.Spec.ClassName)
+	}
+	doc, err := vmopv1.ParseClassConfigSpec(spec.ConfigSpec)
+	if err != nil {
+		return "", err
+	}
+	var firmware string
+	if _, err := doc.Get("firmware", &firmware); err != nil {
+		return "", err
+	}
+	return firmware, nil
 }

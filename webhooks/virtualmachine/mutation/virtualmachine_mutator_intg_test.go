@@ -116,7 +116,7 @@ func intgTestsMutating() {
 			Expect(*actual.Spec.MemoryAdvanced.ReservationLockedToMax).To(BeTrue())
 			Expect(actual.Spec.Resources.Requests.Memory).To(BeNil())
 		})
-		DescribeTable("records class secure boot firmware without changing existing precedence",
+		DescribeTable("leaves class secure boot firmware implicit during mutation",
 			func(raw bool, imageFirmware, rawFirmware string, explicit vmopv1.VirtualMachineBootOptionsFirmwareType, missing bool) {
 				testCtx := ctx
 				img.Status.Firmware = imageFirmware
@@ -149,11 +149,7 @@ func intgTestsMutating() {
 				DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, testCtx.vm)).To(Succeed()) })
 				actual := &vmopv1.VirtualMachine{}
 				Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(ctx.vm), actual)).To(Succeed())
-				expected := explicit
-				if expected == "" && (imageFirmware == "efi" || (imageFirmware == "" && rawFirmware == "efi")) {
-					expected = vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI
-				}
-				Expect(actual.Spec.BootOptions.Firmware).To(Equal(expected))
+				Expect(actual.Spec.BootOptions.Firmware).To(Equal(explicit))
 				Expect(actual.Spec.BootOptions.EFISecureBoot).To(Equal(vmopv1.VirtualMachineBootOptionsEFISecureBootEnabled))
 			},
 			Entry("typed secure boot with image EFI", false, "efi", "", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false),

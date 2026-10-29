@@ -78,10 +78,18 @@ Label: the schema-version label records the last CRD version that wrote the clas
 
 | Field | Rules |
 |---|---|
-| `spec.reservedProfileName` | string. Filled by the mutation webhook from the class's `reservedProfileName.default` (or the governing class's), like any other default; explicit `""` = no profile. Must be in `allowed`. On a class-backed VM it is class-supplied and can't be edited inline; a classless VM sets or inherits it. Can't change from one set value to another while the VM is powered on; vm-operator may set it from unset (schema upgrade). When set, the VM's CPU count, CPU reservation and limit, memory reservation and limit, and device identities and quantities must equal the profile's; overhead is not compared. vm-operator writes the vCenter profile ID from this field and removes it when the field is empty. |
-| `status.governingClassNames` | The classes governing the VM's zone, computed live. |
+| `spec.reservedProfileName` | Optional string (`*string` in Go): nil is omitted; a pointer to `""` explicitly selects no profile. Filled by the mutation webhook from the class's `reservedProfileName.default` (or the governing class's), like any other default; explicit `""` = no profile. Must be in `allowed`. On a class-backed VM it is class-supplied and can't be edited inline; a classless VM sets or inherits it. Can't change from one set value to another while the VM is powered on; vm-operator may set it from unset (schema upgrade). When set, the VM's CPU count, CPU reservation and limit, memory reservation and limit, and device identities and quantities must equal the profile's; overhead is not compared. vm-operator writes the vCenter profile ID from this field and removes it when the field is empty. |
+| `status.governingClassNames` | Optional string set of the names of the classes governing the VM's zone, computed live. |
 | `conditions[GovernanceCompliant]` | `True`/`False`; reason `NoGoverningClass` when the zone has none (False for classless VMs, True for class-backed VMs). |
-| observed status fields | firmware, change block tracking, SEV, SEV-SNP, TDX, CPU hot-remove, SMC, DirectPath I/O devices. CPU `reservationLockedToMax` and NUMA fixed auto-affinity are added with the vmx-23 fields below. |
+| `spec.hardware.devices.vgpuDevices` | Map list keyed by `profileName`; entries have a nonempty profile name and required positive `count`. |
+| `spec.hardware.devices.dynamicDirectPathIODevices` | Map list keyed by `vendorID` + `deviceID`; PCI IDs are 0–65535, `count` is required and positive, and optional `customLabel` selects the backing without joining the key. |
+| `status.hardware.firmware` | Observed `bios` or `efi`; omitted until observed. |
+| `status.changeBlockTracking` | Existing optional boolean, reused. |
+| `status.hardware.cpu.hotRemoveEnabled` | Optional observed booleans; nil differs from false. |
+| `status.hardware.{sevEnabled,sevSnpEnabled,tdxEnabled,smcPresent}` | Optional observed booleans; nil differs from false. |
+| `status.hardware.dynamicDirectPathIODevices` | Observed PCI devices and quantities, with the same item shape and map keys as the inline device list. |
+
+The VM and Zone API foundation (T108–T109) adds schema and conversion support. These definitions are present independently of the capability; runtime behavior remains gated in its implementing stories. vmop-4335 populates VM governance and observed status; vmop-4323 populates the Zone mirror. VM fields without an older-version home survive v1alpha1–v1alpha5 round trips in the conversion annotation, including explicit empty profile selections and false observed booleans.
 
 **vmx-23 fields.** CPU `reservationLockedToMax` and NUMA fixed auto-affinity (`cpuAdvanced.numaFixedAutoAffinityEnabled`) are requested for release 9.2 but exist in vSphere only from hardware version vmx-23. Each is a VM spec field, a `BoolPolicy` at the same class path, and an observed status field, available only when the hardware version is vmx-23 or later. Tracked separately (vmop-4428) and not part of the rest of the VM API. [NEEDS CLARIFICATION: final VM path name for the CPU lock (`cpuAdvanced.reservationLockedToMax` or `cpuAdvanced.cpuReservationLockedToMax`), and the environment-browser capability names in 9.2.]
 
@@ -89,7 +97,7 @@ Label: the schema-version label records the last CRD version that wrote the clas
 
 | Field | Rules |
 |---|---|
-| `status.governingClasses` | Mirror of the classes that govern the zone; written by one controller with an optimistic lock; never read by governance. |
+| `status.governingClasses` | Optional string set of class names. Mirror of the classes that govern the zone; written by one controller with an optimistic lock; never read by governance. |
 
 ## Reserved capacity
 

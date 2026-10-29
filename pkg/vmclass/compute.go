@@ -35,6 +35,11 @@ func applyComputeDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachine
 	applyBoolDefault(&vm.Spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd, cpu.ExposeVNUMAOnCPUHotAdd, reset)
 	applyBoolDefault(&vm.Spec.MemoryAdvanced.HotAddEnabled, memory.HotAddEnabled, reset)
 	applyBoolDefault(&vm.Spec.MemoryAdvanced.ReservationLockedToMax, memory.ReservationLockedToMax, reset)
+	// The lock expresses full reservation; the VM API forbids a separate
+	// memory request while it is enabled. vSphere owns that reservation.
+	if vm.Spec.MemoryAdvanced.ReservationLockedToMax != nil && *vm.Spec.MemoryAdvanced.ReservationLockedToMax && vm.Spec.Resources != nil && vm.Spec.Resources.Requests != nil {
+		vm.Spec.Resources.Requests.Memory = nil
+	}
 	if value := vmopv1.ClassEnumDefault(cpu.LatencySensitivity); value != nil {
 		level := vmopv1.VirtualMachineLatencySensitivityLevel(*value)
 		vm.Spec.CPUAdvanced.LatencySensitivity = &level

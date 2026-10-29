@@ -488,6 +488,23 @@ func vmConfigSpecTests() {
 		})
 	})
 
+	Context("VM Class guarantees all guest memory with the reservation lock", func() {
+		BeforeEach(func() {
+			vmClass.Spec.Resources.Size.Memory = vmopv1.FixedClassResource(resource.MustParse("4Gi"))
+			vmClass.Spec.Resources.Requests.Memory = vmopv1.FixedClassResource(resource.MustParse("4Gi"))
+			vmClass.Spec.Resources.Limits.Memory = vmopv1.FixedClassResource(resource.MustParse("4Gi"))
+			vmClass.Spec.MemoryAdvanced = &vmopv1.VirtualMachineClassMemoryAdvancedSpec{ReservationLockedToMax: vmopv1.FixedClassBool(true)}
+		})
+		It("realizes full reservation through the shared provider projection", func() {
+			Expect(conditions.IsTrue(vm, vmopv1.VirtualMachineConditionCreated)).To(BeTrue())
+			var actual mo.VirtualMachine
+			Expect(vcVM.Properties(ctx, vcVM.Reference(), nil, &actual)).To(Succeed())
+			Expect(actual.Config.MemoryReservationLockedToMax).To(Equal(ptr.To(true)))
+			Expect(actual.Config.MemoryAllocation.Reservation).NotTo(BeNil())
+			Expect(*actual.Config.MemoryAllocation.Reservation).To(BeEquivalentTo(actual.Config.Hardware.MemoryMB))
+		})
+	})
+
 	Context("VM Class spec Memory reservation & limits are non-zero and ConfigSpec specifies memory reservation", func() {
 		BeforeEach(func() {
 			vmClass.Spec.Resources.Requests.Memory.Default = ptr.To(resource.MustParse("4Mi"))

@@ -112,6 +112,25 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 		Expect(class.Spec).To(Equal(original.Spec))
 
 	})
+	It("materializes a guaranteed legacy memory lock without an incompatible explicit request", func() {
+		class.Spec.ConfigSpec = []byte(`{"memoryReservationLockedToMax":true}`)
+		Expect(client.Update(ctx, class)).To(Succeed())
+		defaults.Requests = &vmopv1.VirtualMachineResourceQuantity{Memory: resource.NewQuantity(2*1024*1024*1024, resource.BinarySI)}
+		_, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vm.Spec.MemoryAdvanced.ReservationLockedToMax).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Resources.Requests.Memory).To(BeNil())
+		Expect(defaults.Requests.Memory).NotTo(BeNil())
+		class.Spec.ConfigSpec = nil
+		class.Spec.MemoryAdvanced = &vmopv1.VirtualMachineClassMemoryAdvancedSpec{ReservationLockedToMax: vmopv1.FixedClassBool(true)}
+		Expect(client.Update(ctx, class)).To(Succeed())
+		vm.Spec.MemoryAdvanced, vm.Spec.Resources = nil, nil
+		_, err = vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vm.Spec.MemoryAdvanced.ReservationLockedToMax).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Resources.Requests.Memory).To(BeNil())
+
+	})
 	It("re-defaults a newly omitted hot-remove flag on a permitted class change", func() {
 		oldVM := vm.DeepCopy()
 		oldVM.Spec.ClassName = "previous"

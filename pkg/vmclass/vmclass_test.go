@@ -218,6 +218,35 @@ var _ = Describe("Class boot defaults", Label(testlabels.Mutation, testlabels.AP
 		Expect(vm.Spec.BootOptions.BootDelay.Duration).To(BeZero())
 		Expect(vm.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
 	})
+	DescribeTable("derives only the existing EFI prerequisite for class secure boot",
+		func(imageFirmware, rawFirmware string, explicit vmopv1.VirtualMachineBootOptionsFirmwareType, missing bool, expected vmopv1.VirtualMachineBootOptionsFirmwareType) {
+			vm := &vmopv1.VirtualMachine{}
+			vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{Firmware: explicit}
+			var objects []ctrlclient.Object
+			if imageFirmware != "" || missing {
+				vm.Spec.Image = &vmopv1.VirtualMachineImageRef{Kind: "VirtualMachineImage", Name: "image"}
+				if !missing {
+					objects = append(objects, &vmopv1.VirtualMachineImage{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant", Name: "image"}, Status: vmopv1.VirtualMachineImageStatus{Firmware: imageFirmware}})
+				}
+			}
+			spec := vmopv1.VirtualMachineClassSpec{BootOptions: &vmopv1.VirtualMachineClassBootOptions{EFISecureBoot: vmopv1.FixedClassBool(true)}}
+			if rawFirmware != "" {
+				spec.ConfigSpec = []byte(`{"firmware":"` + rawFirmware + `"}`)
+			}
+			_, err := applyTestBootDefaultsWithObjects(vm, spec, false, objects...)
+			if missing {
+				Expect(err).To(MatchError(ContainSubstring("resolve image firmware")))
+			} else {
+				Expect(err).NotTo(HaveOccurred())
+				Expect(vm.Spec.BootOptions.Firmware).To(Equal(expected))
+			}
+		},
+		Entry("image EFI", "efi", "", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false, vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI),
+		Entry("raw EFI fallback without image", "", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false, vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI),
+		Entry("image BIOS overrides raw EFI", "bios", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false, vmopv1.VirtualMachineBootOptionsFirmwareType("")),
+		Entry("explicit BIOS is preserved", "efi", "efi", vmopv1.VirtualMachineBootOptionsFirmwareTypeBIOS, false, vmopv1.VirtualMachineBootOptionsFirmwareTypeBIOS),
+		Entry("missing image does not fall back to raw EFI", "", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), true, vmopv1.VirtualMachineBootOptionsFirmwareType("")),
+	)
 	DescribeTable("materializes retry delays only for an enabled effective retry",
 		func(raw, retrySet, enabled, tenantEnabled, reset bool) {
 			vm := &vmopv1.VirtualMachine{}
@@ -273,6 +302,12 @@ var _ = Describe("Class boot defaults", Label(testlabels.Mutation, testlabels.AP
 })
 
 func applyTestBootDefaults(vm *vmopv1.VirtualMachine, spec vmopv1.VirtualMachineClassSpec, reset bool) bool {
+	changed, err := applyTestBootDefaultsWithObjects(vm, spec, reset)
+	Expect(err).NotTo(HaveOccurred())
+	return changed
+}
+
+func applyTestBootDefaultsWithObjects(vm *vmopv1.VirtualMachine, spec vmopv1.VirtualMachineClassSpec, reset bool, objects ...ctrlclient.Object) (bool, error) {
 	ctx := pkgcfg.NewContextWithDefaultConfig()
 	pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) {
 		c.Features.TelcoVMServiceAPI = true
@@ -282,7 +317,7 @@ func applyTestBootDefaults(vm *vmopv1.VirtualMachine, spec vmopv1.VirtualMachine
 	Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
 	vm.Namespace, vm.Spec.ClassName = "tenant", "boot-class"
 	class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: vm.Spec.ClassName, Namespace: vm.Namespace}, Spec: spec}
-	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(class).Build()
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(append(objects, class)...).Build()
 	var oldVM *vmopv1.VirtualMachine
 	if reset {
 		oldVM = vm.DeepCopy()
@@ -291,7 +326,5 @@ func applyTestBootDefaults(vm *vmopv1.VirtualMachine, spec vmopv1.VirtualMachine
 	provider := resourceProvider(func(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
 		return nil, nil
 	})
-	changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
-	Expect(err).NotTo(HaveOccurred())
-	return changed
+	return vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
 }

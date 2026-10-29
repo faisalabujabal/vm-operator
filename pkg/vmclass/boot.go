@@ -5,12 +5,16 @@
 package vmclass
 
 import (
+	"context"
+	"fmt"
 	"time"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 )
 
 // applyBootDefaults materializes class-owned boot fields. A class change clears
@@ -57,4 +61,44 @@ func applyBootDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachineCla
 	if hadBootOptions || !apiequality.Semantic.DeepEqual(boot, &vmopv1.VirtualMachineBootOptions{}) {
 		vm.Spec.BootOptions = boot
 	}
+}
+
+// applyBootFirmwarePrerequisite records the existing effective EFI firmware only
+// when a class secure-boot preset needs the VM API's explicit prerequisite.
+// General firmware defaulting remains with the existing provider path.
+func applyBootFirmwarePrerequisite(ctx context.Context, c ctrlclient.Client, vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachineClassSpec) error {
+	if spec.BootOptions == nil || vm.Spec.BootOptions == nil || vm.Spec.BootOptions.Firmware != "" {
+		return nil
+	}
+	secure := vmopv1.ClassBoolDefault(spec.BootOptions.EFISecureBoot)
+	if secure == nil || !*secure {
+		return nil
+	}
+	var firmware string
+	imageRef := vm.Spec.Image
+	if imageRef == nil && vm.Spec.ImageName != "" {
+		imageRef = &vmopv1.VirtualMachineImageRef{Name: vm.Spec.ImageName}
+	}
+	if imageRef != nil {
+		image, err := vmopv1util.GetImage(ctx, c, *imageRef, vm.Namespace)
+		if err != nil {
+			return fmt.Errorf("resolve image firmware for class secure boot: %w", err)
+		}
+		firmware = image.Status.Firmware
+	}
+	// Match CreateConfigSpec: a nonempty image firmware overrides raw class
+	// firmware. In particular, a BIOS image must never be switched to EFI.
+	if firmware == "" {
+		doc, err := vmopv1.ParseClassConfigSpec(spec.ConfigSpec)
+		if err != nil {
+			return err
+		}
+		if _, err := doc.Get("firmware", &firmware); err != nil {
+			return err
+		}
+	}
+	if firmware == string(vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI) {
+		vm.Spec.BootOptions.Firmware = vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI
+	}
+	return nil
 }

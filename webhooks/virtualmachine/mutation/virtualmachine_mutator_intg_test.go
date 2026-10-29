@@ -116,6 +116,53 @@ func intgTestsMutating() {
 			Expect(*actual.Spec.MemoryAdvanced.ReservationLockedToMax).To(BeTrue())
 			Expect(actual.Spec.Resources.Requests.Memory).To(BeNil())
 		})
+		DescribeTable("records class secure boot firmware without changing existing precedence",
+			func(raw bool, imageFirmware, rawFirmware string, explicit vmopv1.VirtualMachineBootOptionsFirmwareType, missing bool) {
+				testCtx := ctx
+				img.Status.Firmware = imageFirmware
+				Expect(ctx.Client.Status().Update(ctx, img)).To(Succeed())
+				class := builder.DummyVirtualMachineClassGenName()
+				class.Namespace = ctx.Namespace
+				class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{EFISecureBoot: vmopv1.FixedClassBool(true)}
+				if rawFirmware != "" {
+					class.Spec.ConfigSpec = []byte(`{"firmware":"` + rawFirmware + `"}`)
+				}
+				if raw {
+					var err error
+					class.Spec.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(&class.Spec)
+					Expect(err).NotTo(HaveOccurred())
+					class.Spec.BootOptions = nil
+				}
+				Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+				DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, class)).To(Succeed()) })
+				ctx.vm.Spec.ClassName = class.Name
+				ctx.vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{Firmware: explicit}
+				if missing {
+					ctx.vm.Spec.ImageName = "missing-image"
+				}
+				err := ctx.Client.Create(ctx, ctx.vm)
+				if missing {
+					Expect(err).To(HaveOccurred())
+					return
+				}
+				Expect(err).NotTo(HaveOccurred())
+				DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, testCtx.vm)).To(Succeed()) })
+				actual := &vmopv1.VirtualMachine{}
+				Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(ctx.vm), actual)).To(Succeed())
+				expected := explicit
+				if expected == "" && (imageFirmware == "efi" || (imageFirmware == "" && rawFirmware == "efi")) {
+					expected = vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI
+				}
+				Expect(actual.Spec.BootOptions.Firmware).To(Equal(expected))
+				Expect(actual.Spec.BootOptions.EFISecureBoot).To(Equal(vmopv1.VirtualMachineBootOptionsEFISecureBootEnabled))
+			},
+			Entry("typed secure boot with image EFI", false, "efi", "", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false),
+			Entry("raw secure boot with image EFI", true, "efi", "", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false),
+			Entry("raw EFI fallback for an image without firmware", true, "", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false),
+			Entry("image BIOS overrides raw EFI", true, "bios", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false),
+			Entry("explicit VM BIOS is preserved", false, "efi", "efi", vmopv1.VirtualMachineBootOptionsFirmwareTypeBIOS, false),
+			Entry("a missing image cannot establish EFI", true, "", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), true),
+		)
 		DescribeTable("admits inactive class retry delays without an invalid VM delay",
 			func(raw, retrySet, tenantEnabled bool) {
 				testCtx := ctx

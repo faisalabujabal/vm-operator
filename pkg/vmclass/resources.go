@@ -90,5 +90,8 @@ func ApplyDefaults(
 	vm.Spec.Resources = resources.DeepCopy()
 	applyComputeDefaults(vm, effective, oldVM != nil)
 	applyBootDefaults(vm, effective, oldVM != nil)
+	if err := applyBootFirmwarePrerequisite(ctx, c, vm, effective); err != nil {
+		return false, err
+	}
 	return !apiequality.Semantic.DeepEqual(*before, vm.Spec), nil
 }

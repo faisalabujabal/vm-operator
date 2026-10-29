@@ -185,7 +185,8 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 		Expect(hw.MemoryMB).To(BeEquivalentTo(classMemory / 1024 / 1024))
 	})
 
-	It("Should realize the v1alpha6 VMClass size and boot defaults for a v1alpha6 VirtualMachine", Label("core-functional", "experimental"), func() {
+	It("Should realize the v1alpha6 VMClass size, compute and boot defaults for a v1alpha6 VirtualMachine", Label("core-functional", "experimental"), func() {
+
 		skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, clusterProxy, consts.TelcoVMServiceAPICapabilityName)
 
 		className := fmt.Sprintf("%s-class", vmName)
@@ -205,6 +206,9 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 					BootDelay: vmopv1.FixedClassLong(1000), BootRetryDelay: vmopv1.FixedClassLong(1500),
 					BootRetry: vmopv1.FixedClassBool(true), EFISecureBoot: vmopv1.FixedClassBool(false),
 				},
+				CPUAdvanced:    classComputePresetCPU(),
+				MemoryAdvanced: &vmopv1.VirtualMachineClassMemoryAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)},
+
 				Resources: vmopv1.VirtualMachineClassResources{
 					Size: vmopv1.VirtualMachineClassResourceSpec{
 						CPU:    &vmopv1.ResourceQuantityRange{Default: &classCPU},
@@ -229,6 +233,9 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 		}
 		vmObject, err := manifestbuilders.VirtualMachineA6(vmParameters)
 		Expect(err).NotTo(HaveOccurred())
+		// Class defaults must replace conflicting tenant values at admission.
+		conflicting := true
+		vmObject.Spec.CPUAdvanced = &vmopv1.VirtualMachineCPUAdvancedSpec{HotRemoveEnabled: &conflicting}
 		vmYaml := manifestbuilders.ToYAML(vmObject)
 		Expect(clusterProxy.CreateWithArgs(ctx, vmYaml)).To(Succeed(), "failed to create v1alpha6 virtualmachine:\n %s", string(vmYaml))
 		vmoperator.DeferCleanupVirtualMachine(config, svClusterClient, clusterProxy.GetKubeconfigPath(), vmParameters.Namespace, vmParameters.Name, false)
@@ -253,10 +260,14 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 			g.Expect(createdVM.Spec.Resources.Size.Memory).NotTo(BeNil())
 			g.Expect(createdVM.Spec.Resources.Size.Memory.Value()).To(Equal(classMemory.Value()))
 			g.Expect(createdVM.Spec.BootOptions).NotTo(BeNil())
+			g.Expect(createdVM.Spec.BootOptions.BootDelay).NotTo(BeNil())
+			g.Expect(createdVM.Spec.BootOptions.BootRetryDelay).NotTo(BeNil())
 			g.Expect(createdVM.Spec.BootOptions.BootDelay.Duration).To(Equal(time.Second))
 			g.Expect(createdVM.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
 			g.Expect(createdVM.Spec.BootOptions.BootRetry).To(Equal(vmopv1.VirtualMachineBootOptionsBootRetryEnabled))
 			g.Expect(createdVM.Spec.BootOptions.EFISecureBoot).To(Equal(vmopv1.VirtualMachineBootOptionsEFISecureBootDisabled))
+			expectClassComputePresetSpec(g, createdVM)
+
 		}, 2*time.Minute, 5*time.Second).Should(Succeed(), "VM compute size was not materialized from its class")
 
 		var vmMO mo.VirtualMachine
@@ -268,6 +279,8 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 		Expect(vmMO.Config.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
 		Expect(vmMO.Config.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
 		Expect(ptr.DerefWithDefault(vmMO.Config.BootOptions.EfiSecureBootEnabled, false)).To(BeFalse())
+		expectClassComputePresetConfig(vmMO.Config)
+
 	})
 
 	It("Should resize powered off VirtualMachine", func() {

@@ -137,9 +137,13 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		cpuCount, memoryMB := checkpoint.CPU, checkpoint.MemoryMB
 		Expect(input.WCPClient.CreateVMClass(wcp.VMClassSpec{
 			ID: checkpoint.ClassName, CPUCount: &cpuCount, MemoryMB: &memoryMB,
-			ConfigSpec: &types.VirtualMachineConfigSpec{BootOptions: &types.VirtualMachineBootOptions{
-				BootDelay: 1000, BootRetryDelay: 1500, BootRetryEnabled: ptr.To(true), EfiSecureBootEnabled: ptr.To(false),
-			}},
+			ConfigSpec: &types.VirtualMachineConfigSpec{
+				NumCoresPerSocket: ptr.To(int32(2)), CpuHotAddEnabled: ptr.To(false),
+				CpuHotRemoveEnabled: ptr.To(false), MemoryHotAddEnabled: ptr.To(false),
+				BootOptions: &types.VirtualMachineBootOptions{
+					BootDelay: 1000, BootRetryDelay: 1500, BootRetryEnabled: ptr.To(true), EfiSecureBootEnabled: ptr.To(false),
+				},
+			},
 		})).To(Succeed())
 		Expect(vmservice.EnsureNamespaceHasAccess(input.WCPClient, checkpoint.ClassName, checkpoint.Namespace)).To(Succeed())
 
@@ -214,6 +218,7 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(vmMO.Config.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
 		Expect(vmMO.Config.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
 		Expect(ptr.DerefWithDefault(vmMO.Config.BootOptions.EfiSecureBootEnabled, false)).To(BeFalse())
+		expectClassComputePresetConfig(vmMO.Config)
 
 		By("persisting a durable checkpoint for the candidate-release verify phase")
 		checkpoint.Phase = "ready"
@@ -264,6 +269,8 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(class.Spec.Resources.Size.CPU.Default).To(Equal(resource.NewQuantity(int64(checkpoint.CPU), resource.DecimalSI)))
 		Expect(class.Spec.Resources.Size.Memory).NotTo(BeNil())
 		Expect(class.Spec.Resources.Size.Memory.Default.Value()).To(Equal(int64(checkpoint.MemoryMB * 1024 * 1024)))
+		Expect(class.Spec.CPUAdvanced).To(Equal(classComputePresetCPU()))
+		Expect(class.Spec.MemoryAdvanced.HotAddEnabled).To(Equal(vmopv1.FixedClassBool(false)))
 
 		Expect(class.Spec.BootOptions).NotTo(BeNil())
 		Expect(*class.Spec.BootOptions.BootDelay.Default).To(Equal(int64(1000)))
@@ -335,6 +342,7 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(vmMO.Config.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
 		Expect(vmMO.Config.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
 		Expect(ptr.DerefWithDefault(vmMO.Config.BootOptions.EfiSecureBootEnabled, false)).To(BeFalse())
+		expectClassComputePresetConfig(vmMO.Config)
 
 		By("creating a new typed v1alpha6 VM using the upgraded legacy class")
 		postUpgradeVMName := checkpoint.VMName + "-post"
@@ -352,6 +360,7 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 			g.Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: postUpgradeVMName}, postUpgradeVM)).To(Succeed())
 			g.Expect(postUpgradeVM.Status.PowerState).To(Equal(vmopv1.VirtualMachinePowerStateOn))
 			g.Expect(postUpgradeVM.Status.UniqueID).NotTo(BeEmpty())
+			expectClassComputePresetSpec(g, postUpgradeVM)
 		}, 10*time.Minute, 10*time.Second).Should(Succeed())
 		postUpgradeVMRef := types.ManagedObjectReference{Type: "VirtualMachine", Value: postUpgradeVM.Status.UniqueID}
 		var postUpgradeVMO mo.VirtualMachine
@@ -363,7 +372,38 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(postUpgradeVMO.Config.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
 		Expect(postUpgradeVMO.Config.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
 		Expect(ptr.DerefWithDefault(postUpgradeVMO.Config.BootOptions.EfiSecureBootEnabled, false)).To(BeFalse())
+		expectClassComputePresetConfig(postUpgradeVMO.Config)
 
 		verificationPassed = true
 	})
+}
+
+// These presets exercise topology and explicit false values without requiring
+// host-specific CPU features or enabling hot-add in the guest image.
+func classComputePresetCPU() *vmopv1.VirtualMachineClassCPUAdvancedSpec {
+	return &vmopv1.VirtualMachineClassCPUAdvancedSpec{
+		Topology:         &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: vmopv1.FixedClassInt(2)},
+		HotAddEnabled:    vmopv1.FixedClassBool(false),
+		HotRemoveEnabled: vmopv1.FixedClassBool(false),
+	}
+}
+
+func expectClassComputePresetSpec(g Gomega, vm *vmopv1.VirtualMachine) {
+	GinkgoHelper()
+	g.Expect(vm.Spec.CPUAdvanced).NotTo(BeNil())
+	g.Expect(vm.Spec.CPUAdvanced.Topology).NotTo(BeNil())
+	g.Expect(vm.Spec.CPUAdvanced.Topology.CoresPerSocket).To(HaveValue(Equal(int32(2))))
+	g.Expect(vm.Spec.CPUAdvanced.HotAddEnabled).To(HaveValue(BeFalse()))
+	g.Expect(vm.Spec.CPUAdvanced.HotRemoveEnabled).To(HaveValue(BeFalse()))
+	g.Expect(vm.Spec.MemoryAdvanced).NotTo(BeNil())
+	g.Expect(vm.Spec.MemoryAdvanced.HotAddEnabled).To(HaveValue(BeFalse()))
+}
+
+func expectClassComputePresetConfig(config *types.VirtualMachineConfigInfo) {
+	GinkgoHelper()
+	Expect(config).NotTo(BeNil())
+	Expect(config.Hardware.NumCoresPerSocket).To(Equal(int32(2)))
+	Expect(ptr.DerefWithDefault(config.CpuHotAddEnabled, false)).To(BeFalse())
+	Expect(ptr.DerefWithDefault(config.CpuHotRemoveEnabled, false)).To(BeFalse())
+	Expect(ptr.DerefWithDefault(config.MemoryHotAddEnabled, false)).To(BeFalse())
 }

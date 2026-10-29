@@ -107,7 +107,21 @@ func intgTestsValidateCreate() {
 		Entry("should not work for invalid", false, invalidMemField.Error(), nil),
 	)
 
+	It("rejects updating a NUMA policy default outside approved sets", func() {
+		class := ctx.vmClass.DeepCopy()
+		class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{0}), Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{0}}})}}
+		Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+		class.Spec.Advanced.PNUMANodeAffinity.Default = ptr.To([]int32{1})
+		Expect(ctx.Client.Update(ctx, class)).NotTo(Succeed())
+	})
 	DescribeTable("advanced policy schema", validateSchema,
+		Entry("rejects negative default NUMA node IDs", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{-1})}}
+		}, true),
+		Entry("rejects negative allowed NUMA node IDs", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{-1}}})}}
+		}, true),
+
 		Entry("accepts a default from an approved NUMA set in a different order", func(class *vmopv1.VirtualMachineClass) {
 			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{2, 0}), Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{0, 2}}})}}
 		}, false),

@@ -2602,7 +2602,7 @@ var _ = Describe("ConfigSpecFromVMClassDevices", func() {
 })
 
 var _ = Describe("ClassConfigSpecFromClassSpec", func() {
-	It("projects advanced defaults into vSphere configuration behind the capability", func() {
+	It("preserves projected advanced defaults and typed devices with the capability disabled", func() {
 		ctx := pkgcfg.NewContextWithDefaultConfig()
 		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = true })
 		class := &vmopv1.VirtualMachineClassSpec{Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: []vmopv1.VGPUDevice{{ProfileName: "preserved-profile"}}}}, Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
@@ -2628,8 +2628,7 @@ var _ = Describe("ClassConfigSpecFromClassSpec", func() {
 		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = false })
 		disabled, err := virtualmachine.ClassConfigSpecFromClassSpec(ctx, class)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(disabled.ChangeTrackingEnabled).To(BeNil())
-		Expect(disabled.ExtraConfig).To(BeEmpty())
+		Expect(disabled).To(Equal(config))
 	})
 
 	It("preserves raw ConfigSpec device precedence over typed defaults", func() {

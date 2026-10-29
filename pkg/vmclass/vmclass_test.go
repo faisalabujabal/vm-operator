@@ -141,6 +141,30 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 })
 
 var _ = Describe("Class advanced admission", Label(testlabels.Mutation, testlabels.API), func() {
+	It("normalizes first-class VMX bag defaults with explicit typed policy precedence", func() {
+		ctx := pkgcfg.NewContextWithDefaultConfig()
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = true })
+		scheme := runtime.NewScheme()
+		Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+		yes := true
+		values := []common.KeyValuePair{{Key: "numa.vcpu.preferHT", Value: "FALSE"}, {Key: "sched.mem.lpage.enable1GPage", Value: "TRUE"}, {Key: "numa.nodeAffinity", Value: "0,2"}}
+		class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "advanced", Namespace: "tenant"}, Spec: vmopv1.VirtualMachineClassSpec{Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: &vmopv1.BoolPolicy{Default: &yes}, ExtraConfig: &vmopv1.ExtraConfigListPolicy{Default: &values}}}}
+		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(class).Build()
+		vm := &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant"}}
+		vm.Spec.ClassName = class.Name
+		provider := resourceProvider(func(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
+			return nil, nil
+		})
+		changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+		Expect(vm.Spec.Advanced.PreferHTEnabled).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Advanced.HugePages1GEnabled).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Advanced.PNUMANodeAffinity).To(Equal([]int32{0, 2}))
+		Expect(vm.Spec.Advanced.ExtraConfig).To(BeEmpty())
+		Expect(values[0].Value).To(Equal("FALSE"))
+	})
+
 	It("materializes defaults once and clears them when selecting an empty class", func() {
 		ctx := pkgcfg.NewContextWithDefaultConfig()
 		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = true; c.Features.VMResizeCPUMemory = true })

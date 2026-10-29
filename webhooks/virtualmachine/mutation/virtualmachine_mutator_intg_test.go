@@ -101,6 +101,10 @@ func intgTestsMutating() {
 			class.Namespace = ctx.Namespace
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Default: resource.NewQuantity(2, resource.DecimalSI)}
 			class.Spec.Resources.Size.Memory = &vmopv1.ResourceQuantityRange{Default: resource.NewQuantity(2*1024*1024*1024, resource.BinarySI)}
+			class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{
+				BootDelay: vmopv1.FixedClassLong(0), EFISecureBoot: vmopv1.FixedClassBool(false),
+			}
+			class.Spec.ConfigSpec = []byte(`{"_typeName":"VirtualMachineConfigSpec","bootOptions":{"bootDelay":3000,"bootRetryDelay":1500,"bootRetryEnabled":true,"efiSecureBootEnabled":true}}`)
 			Expect(ctx.Client.Create(ctx, class)).To(Succeed())
 			DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, class)).To(Succeed()) })
 			ctx.vm.Spec.ClassName = class.Name
@@ -112,6 +116,12 @@ func intgTestsMutating() {
 			Expect(actual.Spec.Resources).NotTo(BeNil())
 			Expect(actual.Spec.Resources.Size.CPU.Value()).To(Equal(int64(2)))
 			Expect(actual.Spec.Resources.Size.Memory.Value()).To(Equal(int64(2 * 1024 * 1024 * 1024)))
+			Expect(actual.Spec.BootOptions).NotTo(BeNil())
+			Expect(actual.Spec.BootOptions.BootDelay).NotTo(BeNil())
+			Expect(actual.Spec.BootOptions.BootDelay.Duration).To(BeZero())
+			Expect(actual.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
+			Expect(actual.Spec.BootOptions.BootRetry).To(Equal(vmopv1.VirtualMachineBootOptionsBootRetryEnabled))
+			Expect(actual.Spec.BootOptions.EFISecureBoot).To(Equal(vmopv1.VirtualMachineBootOptionsEFISecureBootDisabled))
 		})
 	})
 

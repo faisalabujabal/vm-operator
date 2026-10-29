@@ -84,6 +84,17 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 		Expect(changed).To(BeFalse())
 		Expect(calls).To(BeZero())
 	})
+	It("does not refresh boot defaults on an ordinary update after a class edit", func() {
+		class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: vmopv1.FixedClassLong(5000)}
+		Expect(client.Update(ctx, class)).To(Succeed())
+		vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootDelay: &metav1.Duration{Duration: time.Second}}
+		oldVM := vm.DeepCopy()
+		changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeFalse())
+		Expect(vm.Spec.BootOptions.BootDelay.Duration).To(Equal(time.Second))
+		Expect(calls).To(BeZero())
+	})
 	It("clears allocations from the previous class on a class change", func() {
 		oldVM := vm.DeepCopy()
 		oldVM.Spec.ClassName = "guaranteed"

@@ -156,7 +156,10 @@ func projectClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDoc
 	}
 	var entries []json.RawMessage
 	if _, err := doc.Get("extraConfig", &entries); err != nil {
-		return err
+		// An older writer may have stored an unsupported bag shape. Keep it
+		// intact instead of fabricating a valid replacement; the conversion
+		// annotation retains policies that cannot be projected into this bag.
+		return nil
 	}
 	entries, err := overlayClassExtraConfig(entries, values)
 	if err != nil {

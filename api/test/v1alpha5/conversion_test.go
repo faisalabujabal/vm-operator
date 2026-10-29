@@ -295,6 +295,27 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 		{"v1alpha5", func() ctrlconversion.Convertible { return &vmopv1a5.VirtualMachineClass{} }},
 	} {
 		Context(version.name, func() {
+			It("retains typed policies alongside unprojectable raw ExtraConfig", func() {
+				for _, raw := range []string{`{"extraConfig":{"legacy":true}}`, `{"extraConfig":"legacy"}`} {
+					hub := classWithPolicies()
+					hub.Spec.ConfigSpec = json.RawMessage(raw)
+					hub.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: vmopv1.FixedClassBool(false)}
+					spoke := version.newSpoke()
+					Expect(spoke.ConvertFrom(hub)).To(Succeed())
+					encoded, err := json.Marshal(spoke)
+					Expect(err).NotTo(HaveOccurred())
+					var older struct {
+						Spec struct{ ConfigSpec json.RawMessage }
+					}
+					Expect(json.Unmarshal(encoded, &older)).To(Succeed())
+					Expect(older.Spec.ConfigSpec).To(MatchJSON(raw))
+					var restored vmopv1.VirtualMachineClass
+					Expect(spoke.ConvertTo(&restored)).To(Succeed())
+					Expect(restored.Spec.ConfigSpec).To(MatchJSON(raw))
+					Expect(restored.Spec.Advanced).To(Equal(hub.Spec.Advanced))
+					Expect(restored.Spec.Resources).To(Equal(hub.Spec.Resources))
+				}
+			})
 			It("preserves unrepresentable advanced raw leaves across old API reads", func() {
 				for _, raw := range []string{
 					`{"_typeName":"VirtualMachineConfigSpec","changeTrackingEnabled":"legacy"}`,

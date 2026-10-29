@@ -44,6 +44,70 @@ func ClassResourcePairDefaults(in VirtualMachineClassResourceSpec) (cpu, memory 
 	return ClassResourceDefault(in.CPU), ClassResourceDefault(in.Memory)
 }
 
+// FixedClassBool converts a legacy preset into a fixed boolean policy.
+func FixedClassBool(value bool) *BoolPolicy {
+	allowOverride := false
+	return &BoolPolicy{Default: &value, AllowOverride: &allowOverride}
+}
+
+// ClassBoolDefault returns an isolated boolean default, preserving omission.
+func ClassBoolDefault(policy *BoolPolicy) *bool {
+	if policy == nil {
+		return nil
+	}
+	return classScalarCopy(policy.Default)
+}
+
+// FixedClassInt converts a legacy 32-bit preset into a fixed range.
+func FixedClassInt(value int32) *IntRange {
+	minimum, maximum, def := value, value, value
+	return &IntRange{Min: &minimum, Max: &maximum, Default: &def}
+}
+
+// ClassIntDefault returns an isolated integer default, preserving omission.
+func ClassIntDefault(policy *IntRange) *int32 {
+	if policy == nil {
+		return nil
+	}
+	return classScalarCopy(policy.Default)
+}
+
+// FixedClassLong converts a legacy 64-bit preset into a fixed range.
+func FixedClassLong(value int64) *LongRange {
+	minimum, maximum, def := value, value, value
+	return &LongRange{Min: &minimum, Max: &maximum, Default: &def}
+}
+
+// ClassLongDefault returns an isolated integer default, preserving omission.
+func ClassLongDefault(policy *LongRange) *int64 {
+	if policy == nil {
+		return nil
+	}
+	return classScalarCopy(policy.Default)
+}
+
+// ClassEnumDefault returns the explicit or sole allowed scalar default.
+func ClassEnumDefault(policy *EnumPolicy) *string {
+	if policy == nil {
+		return nil
+	}
+	if policy.Default != nil {
+		return classScalarCopy(policy.Default)
+	}
+	if policy.Allowed != nil && len(*policy.Allowed) == 1 {
+		return classScalarCopy(&(*policy.Allowed)[0])
+	}
+	return nil
+}
+
+func classScalarCopy[T ~bool | ~int32 | ~int64 | ~string](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
 // RestoreClassPolicies restores fields an older API cannot represent unless
 // that API's writer changed their projected value. Projected is the preserved
 // class converted down and back up without its conversion annotation.
@@ -58,6 +122,7 @@ func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
 		restoreUnchangedClassPolicy(&group.dst.CPU, group.preserved.CPU, group.projected.CPU)
 		restoreUnchangedClassPolicy(&group.dst.Memory, group.preserved.Memory, group.projected.Memory)
 	}
+	restoreUnchangedClassPolicy(&dst.ConfigSpec, preserved.ConfigSpec, projected.ConfigSpec)
 }
 
 func restoreUnchangedClassPolicy[T any](dst *T, preserved, projected T) {

@@ -528,3 +528,53 @@ func classWithPolicies() *vmopv1.VirtualMachineClass {
 		},
 	}
 }
+
+var _ = Describe("Shared class preset helpers", Label("api"), func() {
+	It("edits nested presets without losing unknown objects or integer precision", func() {
+		raw := json.RawMessage(`{"_typeName":"VirtualMachineConfigSpec","flags":{"vvtdEnabled":false,"future":{"number":123456789012345678901234567890}},"cpuHotAddEnabled":true}`)
+		before := append(json.RawMessage(nil), raw...)
+		doc, err := vmopv1.ParseClassConfigSpec(raw)
+		Expect(err).NotTo(HaveOccurred())
+		var value bool
+		ok, err := doc.Get("flags.vvtdEnabled", &value)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ok).To(BeTrue())
+		Expect(value).To(BeFalse())
+		untouched, err := doc.Marshal()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(untouched).To(Equal(raw))
+		Expect(doc.Delete("flags.vvtdEnabled")).To(Succeed())
+		Expect(doc.Set("bootOptions.bootDelay", int64(1234567890123456789))).To(Succeed())
+		changed, err := doc.Marshal()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","flags":{"future":{"number":123456789012345678901234567890}},"cpuHotAddEnabled":true,"bootOptions":{"bootDelay":1234567890123456789}}`))
+		Expect(raw).To(Equal(before))
+	})
+	It("preserves nil and explicit false defaults independently", func() {
+		Expect(vmopv1.ClassBoolDefault(nil)).To(BeNil())
+		policy := vmopv1.FixedClassBool(false)
+		Expect(*policy.AllowOverride).To(BeFalse())
+		projected := vmopv1.ClassBoolDefault(policy)
+		Expect(projected).NotTo(BeNil())
+		Expect(*projected).To(BeFalse())
+		*projected = true
+		Expect(*policy.Default).To(BeFalse())
+		def := ""
+		allowed := []string{"fallback"}
+		Expect(*vmopv1.ClassEnumDefault(&vmopv1.EnumPolicy{Default: &def, Allowed: &allowed})).To(BeEmpty())
+		Expect(*vmopv1.ClassEnumDefault(&vmopv1.EnumPolicy{Allowed: &allowed})).To(Equal("fallback"))
+	})
+	It("distinguishes null values from explicit false and reports malformed objects", func() {
+		doc, err := vmopv1.ParseClassConfigSpec(json.RawMessage(`{"flags":null,"cpuHotAddEnabled":null}`))
+		Expect(err).NotTo(HaveOccurred())
+		var value bool
+		ok, err := doc.Get("cpuHotAddEnabled", &value)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ok).To(BeFalse())
+		ok, err = doc.Get("flags.vvtdEnabled", &value)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ok).To(BeFalse())
+		_, err = vmopv1.ParseClassConfigSpec(json.RawMessage(`{"flags":`))
+		Expect(err).To(HaveOccurred())
+	})
+})

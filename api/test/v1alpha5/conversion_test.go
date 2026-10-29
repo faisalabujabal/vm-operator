@@ -293,6 +293,66 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 		{"v1alpha5", func() ctrlconversion.Convertible { return &vmopv1a5.VirtualMachineClass{} }},
 	} {
 		Context(version.name, func() {
+			It("promotes boot milliseconds and explicit false values while preserving unknown configuration", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":{"_typeName":"VirtualMachineConfigSpec","annotation":"keep","bootOptions":{"_typeName":"VirtualMachineBootOptions","bootDelay":0,"bootRetryDelay":1500,"bootRetryEnabled":false,"efiSecureBootEnabled":true,"bootOrder":[]}}}}`), spoke)).To(Succeed())
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(*hub.Spec.BootOptions.BootDelay.Default).To(BeZero())
+				Expect(*hub.Spec.BootOptions.BootRetryDelay.Default).To(Equal(int64(1500)))
+				Expect(*hub.Spec.BootOptions.BootRetry.Default).To(BeFalse())
+				Expect(*hub.Spec.BootOptions.EFISecureBoot.Default).To(BeTrue())
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","annotation":"keep","bootOptions":{"_typeName":"VirtualMachineBootOptions","bootOrder":[]}}`))
+				projected := version.newSpoke()
+				Expect(projected.ConvertFrom(&hub)).To(Succeed())
+				var restored vmopv1.VirtualMachineClass
+				Expect(projected.ConvertTo(&restored)).To(Succeed())
+				Expect(apiequality.Semantic.DeepEqual(restored.Spec, hub.Spec)).To(BeTrue())
+			})
+
+			It("retains legacy boot delays outside the VM duration domain as raw presets", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":{"_typeName":"VirtualMachineConfigSpec","bootOptions":{"bootDelay":-1,"bootRetryDelay":9223372036855}}}}`), spoke)).To(Succeed())
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.BootOptions).To(BeNil())
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","bootOptions":{"bootDelay":-1,"bootRetryDelay":9223372036855}}`))
+			})
+
+			It("preserves boot policies per leaf while honoring older-writer raw edits", func() {
+				hub := classWithPolicies()
+				minimum, maximum, def := int64(0), int64(5000), int64(1000)
+				enabled, allow := true, true
+				hub.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{
+					BootDelay:     &vmopv1.LongRange{Min: &minimum, Max: &maximum, Default: &def},
+					EFISecureBoot: &vmopv1.BoolPolicy{Default: &enabled, AllowOverride: &allow},
+				}
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				var restored vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec.BootOptions).To(Equal(hub.Spec.BootOptions))
+				data, err := json.Marshal(spoke)
+				Expect(err).NotTo(HaveOccurred())
+				var body map[string]any
+				Expect(json.Unmarshal(data, &body)).To(Succeed())
+				config := body["spec"].(map[string]any)["configSpec"].(map[string]any)
+				config["bootOptions"].(map[string]any)["bootDelay"] = 2000
+				data, err = json.Marshal(body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(json.Unmarshal(data, spoke)).To(Succeed())
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(*restored.Spec.BootOptions.BootDelay.Min).To(Equal(int64(2000)))
+				Expect(*restored.Spec.BootOptions.BootDelay.Max).To(Equal(int64(2000)))
+				Expect(restored.Spec.BootOptions.EFISecureBoot).To(Equal(hub.Spec.BootOptions.EFISecureBoot))
+				delete(config, "bootOptions")
+				data, err = json.Marshal(body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(json.Unmarshal(data, spoke)).To(Succeed())
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec.BootOptions).To(BeNil())
+			})
+
 			It("moves legacy scalars without changing units, devices, storage or reservation slots", func() {
 				spoke := version.newSpoke()
 				Expect(json.Unmarshal([]byte(`{

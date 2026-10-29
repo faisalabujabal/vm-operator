@@ -140,6 +140,9 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 			ConfigSpec: &types.VirtualMachineConfigSpec{
 				NumCoresPerSocket: ptr.To(int32(2)), CpuHotAddEnabled: ptr.To(false),
 				CpuHotRemoveEnabled: ptr.To(false), MemoryHotAddEnabled: ptr.To(false),
+				BootOptions: &types.VirtualMachineBootOptions{
+					BootDelay: 1000, BootRetryDelay: 1500, BootRetryEnabled: ptr.To(true), EfiSecureBootEnabled: ptr.To(false),
+				},
 			},
 		})).To(Succeed())
 		Expect(vmservice.EnsureNamespaceHasAccess(input.WCPClient, checkpoint.ClassName, checkpoint.Namespace)).To(Succeed())
@@ -210,6 +213,11 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		checkpoint.RealizedMemoryMB = vmMO.Config.Hardware.MemoryMB
 		Expect(checkpoint.RealizedCPU).To(BeEquivalentTo(checkpoint.CPU))
 		Expect(checkpoint.RealizedMemoryMB).To(BeEquivalentTo(checkpoint.MemoryMB))
+		Expect(vmMO.Config.BootOptions).NotTo(BeNil(), "baseline boot settings must be realized before recording the checkpoint")
+		Expect(vmMO.Config.BootOptions.BootDelay).To(Equal(int64(1000)))
+		Expect(vmMO.Config.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
+		Expect(vmMO.Config.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
+		Expect(ptr.DerefWithDefault(vmMO.Config.BootOptions.EfiSecureBootEnabled, false)).To(BeFalse())
 		expectClassComputePresetConfig(vmMO.Config)
 
 		By("persisting a durable checkpoint for the candidate-release verify phase")
@@ -264,6 +272,11 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(class.Spec.CPUAdvanced).To(Equal(classComputePresetCPU()))
 		Expect(class.Spec.MemoryAdvanced.HotAddEnabled).To(Equal(vmopv1.FixedClassBool(false)))
 
+		Expect(class.Spec.BootOptions).NotTo(BeNil())
+		Expect(*class.Spec.BootOptions.BootDelay.Default).To(Equal(int64(1000)))
+		Expect(*class.Spec.BootOptions.BootRetryDelay.Default).To(Equal(int64(1500)))
+		Expect(*class.Spec.BootOptions.BootRetry.Default).To(BeTrue())
+		Expect(*class.Spec.BootOptions.EFISecureBoot.Default).To(BeFalse())
 		By("verifying the stored legacy profile and zero slots survive the upgrade")
 		profileKey := ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: checkpoint.ClassName + "-profile"}
 		profileClass := &vmopv1.VirtualMachineClass{}
@@ -324,6 +337,11 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(collector.RetrieveOne(ctx, vmRef, []string{"config"}, &vmMO)).To(Succeed())
 		Expect(vmMO.Config.Hardware.NumCPU).To(Equal(checkpoint.RealizedCPU))
 		Expect(vmMO.Config.Hardware.MemoryMB).To(Equal(checkpoint.RealizedMemoryMB))
+		Expect(vmMO.Config.BootOptions).NotTo(BeNil())
+		Expect(vmMO.Config.BootOptions.BootDelay).To(Equal(int64(1000)))
+		Expect(vmMO.Config.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
+		Expect(vmMO.Config.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
+		Expect(ptr.DerefWithDefault(vmMO.Config.BootOptions.EfiSecureBootEnabled, false)).To(BeFalse())
 		expectClassComputePresetConfig(vmMO.Config)
 
 		By("creating a new typed v1alpha6 VM using the upgraded legacy class")
@@ -349,6 +367,11 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(collector.RetrieveOne(ctx, postUpgradeVMRef, []string{"config"}, &postUpgradeVMO)).To(Succeed())
 		Expect(postUpgradeVMO.Config.Hardware.NumCPU).To(BeEquivalentTo(checkpoint.CPU))
 		Expect(postUpgradeVMO.Config.Hardware.MemoryMB).To(BeEquivalentTo(checkpoint.MemoryMB))
+		Expect(postUpgradeVMO.Config.BootOptions).NotTo(BeNil())
+		Expect(postUpgradeVMO.Config.BootOptions.BootDelay).To(Equal(int64(1000)))
+		Expect(postUpgradeVMO.Config.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
+		Expect(postUpgradeVMO.Config.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
+		Expect(ptr.DerefWithDefault(postUpgradeVMO.Config.BootOptions.EfiSecureBootEnabled, false)).To(BeFalse())
 		expectClassComputePresetConfig(postUpgradeVMO.Config)
 
 		verificationPassed = true

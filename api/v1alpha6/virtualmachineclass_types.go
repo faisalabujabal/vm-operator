@@ -141,6 +141,12 @@ type VirtualMachineClassSpec struct {
 
 	// +optional
 
+	// BootOptions describes class-supplied boot settings.
+	// +optional
+	BootOptions *VirtualMachineClassBootOptions `json:"bootOptions,omitempty"`
+
+	// +optional
+
 	// Description describes the configuration of the VirtualMachineClass which
 	// is not related to virtual hardware or infrastructure policy. This field
 	// is used to address remaining specs about this VirtualMachineClass.

@@ -142,6 +142,7 @@ func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
 	restoreClassCompute(dst, preserved, projected)
 	restoreUnchangedClassPolicy(&dst.ConfigSpec, preserved.ConfigSpec, projected.ConfigSpec)
 	restoreUnchangedClassPolicy(&dst.ReservedProfileName, preserved.ReservedProfileName, projected.ReservedProfileName)
+	restoreClassBootOptions(dst, preserved, projected)
 }
 
 func restoreUnchangedClassPolicy[T any](dst *T, preserved, projected T) {

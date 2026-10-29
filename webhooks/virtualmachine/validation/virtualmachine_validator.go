@@ -55,6 +55,7 @@ import (
 	spqutil "github.com/vmware-tanzu/vm-operator/pkg/util/kube/spq"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
+	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 	"github.com/vmware-tanzu/vm-operator/pkg/vmconfig/anno2extraconfig"
 	"github.com/vmware-tanzu/vm-operator/webhooks/common"
 )
@@ -3094,16 +3095,21 @@ func (v validator) validateBootOptions(
 				))
 		}
 
-		// EFISecureBoot can only be used in conjunction with EFI firmware
-		if bootOptions.EFISecureBoot == vmopv1.VirtualMachineBootOptionsEFISecureBootEnabled &&
-			bootOptions.Firmware != vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI {
-
-			allErrs = append(
-				allErrs,
-				field.Forbidden(
-					fieldPath.Child("efiSecureBoot"),
-					"cannot set efiSecureBoot when image firmware is not 'efi'",
-				))
+		// Class-backed defaults may rely on image or raw class firmware. Check
+		// that prerequisite without persisting a derived VM firmware override.
+		if bootOptions.EFISecureBoot == vmopv1.VirtualMachineBootOptionsEFISecureBootEnabled {
+			firmware := string(bootOptions.Firmware)
+			if firmware == "" && vm.Spec.ClassName != "" && pkgcfg.FromContext(ctx).Features.TelcoVMServiceAPI {
+				var err error
+				firmware, err = vmclass.ResolveBootFirmware(ctx, v.client, vm, oldVM)
+				if err != nil {
+					allErrs = append(allErrs, field.InternalError(fieldPath.Child("efiSecureBoot"), err))
+					return allErrs
+				}
+			}
+			if firmware != string(vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI) {
+				allErrs = append(allErrs, field.Forbidden(fieldPath.Child("efiSecureBoot"), "cannot set efiSecureBoot when image firmware is not 'efi'"))
+			}
 		}
 	}
 

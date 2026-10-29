@@ -89,5 +89,6 @@ func ApplyDefaults(
 	before := vm.Spec.DeepCopy()
 	vm.Spec.Resources = resources.DeepCopy()
 	applyComputeDefaults(vm, effective, oldVM != nil)
+	applyAdvancedDefaults(vm, effective, oldVM != nil)
 	return !apiequality.Semantic.DeepEqual(*before, vm.Spec), nil
 }

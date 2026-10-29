@@ -6,6 +6,7 @@ package v1alpha5_test
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/vmware-tanzu/vm-operator/api/utilconversion"
 	vmopv1a1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
@@ -28,6 +29,7 @@ import (
 	"github.com/vmware-tanzu/vm-operator/api/test/utilconversion/fuzztests"
 	vmopv1a5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	"github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
 )
 
 var _ = Describe("FuzzyConversion", Label("api", "fuzz"), func() {
@@ -293,6 +295,137 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 		{"v1alpha5", func() ctrlconversion.Convertible { return &vmopv1a5.VirtualMachineClass{} }},
 	} {
 		Context(version.name, func() {
+			It("retains typed policies alongside unprojectable raw ExtraConfig", func() {
+				for _, raw := range []string{`{"extraConfig":{"legacy":true}}`, `{"extraConfig":"legacy"}`} {
+					hub := classWithPolicies()
+					hub.Spec.ConfigSpec = json.RawMessage(raw)
+					hub.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: vmopv1.FixedClassBool(false)}
+					spoke := version.newSpoke()
+					Expect(spoke.ConvertFrom(hub)).To(Succeed())
+					encoded, err := json.Marshal(spoke)
+					Expect(err).NotTo(HaveOccurred())
+					var older struct {
+						Spec struct{ ConfigSpec json.RawMessage }
+					}
+					Expect(json.Unmarshal(encoded, &older)).To(Succeed())
+					Expect(older.Spec.ConfigSpec).To(MatchJSON(raw))
+					var restored vmopv1.VirtualMachineClass
+					Expect(spoke.ConvertTo(&restored)).To(Succeed())
+					Expect(restored.Spec.ConfigSpec).To(MatchJSON(raw))
+					Expect(restored.Spec.Advanced).To(Equal(hub.Spec.Advanced))
+					Expect(restored.Spec.Resources).To(Equal(hub.Spec.Resources))
+				}
+			})
+			It("preserves unrepresentable advanced raw leaves across old API reads", func() {
+				for _, raw := range []string{
+					`{"_typeName":"VirtualMachineConfigSpec","changeTrackingEnabled":"legacy"}`,
+					`{"_typeName":"VirtualMachineConfigSpec","extraConfig":{"legacy":true}}`,
+					`{"_typeName":"VirtualMachineConfigSpec","extraConfig":"legacy"}`,
+					`{"_typeName":"VirtualMachineConfigSpec","extraConfig":["legacy",7,null,{"key":7,"value":"bad-key"},{"key":null,"value":"null-key"},{"key":"opaque","value":{"future":true}}]}`,
+				} {
+					spoke := version.newSpoke()
+					Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":`+raw+`}}`), spoke)).To(Succeed())
+					hub := vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: vmopv1.FixedClassBool(true)}}}
+					Expect(spoke.ConvertTo(&hub)).To(Succeed())
+					Expect(hub.Spec.Advanced).To(BeNil())
+					Expect(hub.Spec.ConfigSpec).To(MatchJSON(raw))
+					Expect(version.newSpoke().ConvertFrom(&hub)).To(Succeed())
+				}
+				// Promoting an independent supported leaf must not make an
+				// unsupported ExtraConfig shape fail the return projection.
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":{"changeTrackingEnabled":true,"extraConfig":{"legacy":true}}}}`), spoke)).To(Succeed())
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.Advanced.ChangeBlockTracking.Default).To(HaveValue(BeTrue()))
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"extraConfig":{"legacy":true}}`))
+				Expect(version.newSpoke().ConvertFrom(&hub)).To(Succeed())
+			})
+			It("preserves unsupported duplicate NUMA members and null ExtraConfig values", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":{"extraConfig":[{"key":"numa.nodeAffinity","value":"0,0"},{"key":"null.raw","value":null},{"key":"null.typed","value":{"_typeName":"string","_value":null}}]}}}`), spoke)).To(Succeed())
+				hub := vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: &vmopv1.BoolPolicy{}}}}
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.Advanced).To(BeNil())
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","extraConfig":[{"key":"numa.nodeAffinity","value":"0,0"},{"key":"null.raw","value":null},{"key":"null.typed","value":{"_typeName":"string","_value":null}}]}`))
+			})
+			It("overlays typed ExtraConfig by key without duplicates and retains unrelated raw properties", func() {
+				f := false
+				hub := classWithPolicies()
+				hub.Spec.ConfigSpec = json.RawMessage(`{"annotation":"keep","extraConfig":[{"_typeName":"OptionValue","key":"numa.vcpu.preferHT","value":{"_typeName":"string","_value":"TRUE"},"future":42},{"key":"unrelated","value":{"_typeName":"string","_value":"keep"}}]}`)
+				hub.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: &vmopv1.BoolPolicy{Default: &f}, ExtraConfig: &vmopv1.ExtraConfigListPolicy{Default: &[]common.KeyValuePair{{Key: "numa.vcpu.preferHT", Value: "TRUE"}}}}
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				encoded, err := json.Marshal(spoke)
+				Expect(err).NotTo(HaveOccurred())
+				var result struct {
+					Spec struct {
+						ConfigSpec struct {
+							ExtraConfig []struct {
+								Key   string
+								Value struct {
+									Value string `json:"_value"`
+								}
+								Future int
+							}
+						}
+					}
+				}
+				Expect(json.Unmarshal(encoded, &result)).To(Succeed())
+				Expect(result.Spec.ConfigSpec.ExtraConfig).To(HaveLen(2))
+				count := 0
+				for _, entry := range result.Spec.ConfigSpec.ExtraConfig {
+					if entry.Key == "numa.vcpu.preferHT" {
+						count++
+						Expect(entry.Value.Value).To(Equal("FALSE"))
+						Expect(entry.Future).To(Equal(42))
+					}
+				}
+				Expect(count).To(Equal(1))
+			})
+
+			It("elevates advanced values while retaining unknown and non-string ExtraConfig", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":{"_typeName":"VirtualMachineConfigSpec","changeTrackingEnabled":false,"futureField":{"n":9007199254740993},"extraConfig":[{"_typeName":"OptionValue","key":"numa.vcpu.preferHT","value":{"_typeName":"string","_value":"TRUE"}},{"key":"numa.nodeAffinity","value":"0,2"},{"key":"guestinfo.example","value":{"_typeName":"string","_value":"hello"}},{"key":"future.numeric","value":9007199254740993},{"key":"future.opaque","value":"hello","futureProperty":true}]}}}`), spoke)).To(Succeed())
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.Advanced).NotTo(BeNil())
+				Expect(hub.Spec.Advanced.ChangeBlockTracking.Default).To(HaveValue(BeFalse()))
+				Expect(hub.Spec.Advanced.PreferHTEnabled.Default).To(HaveValue(BeTrue()))
+				Expect(*hub.Spec.Advanced.PNUMANodeAffinity.Default).To(Equal([]int32{0, 2}))
+				Expect((*hub.Spec.Advanced.ExtraConfig.Default)[0].Key).To(Equal("guestinfo.example"))
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","futureField":{"n":9007199254740993},"extraConfig":[{"key":"future.numeric","value":9007199254740993},{"key":"future.opaque","value":"hello","futureProperty":true}]}`))
+			})
+			It("preserves advanced policy metadata and honors one older field edit", func() {
+				hub := classWithPolicies()
+				f, t := false, true
+				glob := "guestinfo.*"
+				hub.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{
+					ChangeBlockTracking: &vmopv1.BoolPolicy{Default: &t, AllowOverride: &t},
+					PreferHTEnabled:     &vmopv1.BoolPolicy{Default: &f, AllowOverride: &t},
+					ExtraConfig:         &vmopv1.ExtraConfigListPolicy{Allowed: &[]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Glob: &glob}}}},
+				}
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				var unchanged vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&unchanged)).To(Succeed())
+				Expect(unchanged.Spec.Advanced).To(Equal(hub.Spec.Advanced))
+				var obj map[string]interface{}
+				encoded, err := json.Marshal(spoke)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(json.Unmarshal(encoded, &obj)).To(Succeed())
+				obj["spec"].(map[string]interface{})["configSpec"].(map[string]interface{})["changeTrackingEnabled"] = false
+				encoded, err = json.Marshal(obj)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(json.Unmarshal(encoded, spoke)).To(Succeed())
+				var edited vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&edited)).To(Succeed())
+				Expect(edited.Spec.Advanced.ChangeBlockTracking.Default).To(HaveValue(BeFalse()))
+				Expect(edited.Spec.Advanced.ChangeBlockTracking.AllowOverride).To(HaveValue(BeFalse()))
+				Expect(edited.Spec.Advanced.PreferHTEnabled).To(Equal(hub.Spec.Advanced.PreferHTEnabled))
+				Expect(edited.Spec.Advanced.ExtraConfig).To(Equal(hub.Spec.Advanced.ExtraConfig))
+			})
+
 			It("moves legacy scalars without changing units, devices, storage or reservation slots", func() {
 				spoke := version.newSpoke()
 				Expect(json.Unmarshal([]byte(`{
@@ -746,4 +879,76 @@ var _ = Describe("CPU VM counterpart conversion", Label("api"), func() {
 			Expect(*restored.Spec.CPUAdvanced.HotRemoveEnabled).To(BeTrue())
 		})
 	}
+})
+
+var _ = Describe("Indexed class ExtraConfig overlay", Label("api"), func() {
+	It("merges many keys once while preserving residual duplicates and typed precedence", func() {
+		entries := []json.RawMessage{
+			json.RawMessage(`{"key":"unmatched","value":"first"}`),
+			json.RawMessage(`{"key":"unmatched","value":"second"}`),
+			json.RawMessage(`null`),
+			json.RawMessage(`"unsupported"`),
+		}
+		values := []common.KeyValuePair{}
+		for i := 0; i < 512; i++ {
+			key := fmt.Sprintf("guestinfo.key%d", i)
+			values = append(values, common.KeyValuePair{Key: key, Value: fmt.Sprintf("typed%d", i)})
+			if i < 256 {
+				raw, err := json.Marshal(map[string]any{"key": key, "value": "raw", "future": i})
+				Expect(err).NotTo(HaveOccurred())
+				entries = append(entries, raw)
+			}
+		}
+		entries = append(entries, json.RawMessage(`{"key":"guestinfo.key0","value":"duplicate","anotherFuture":42}`))
+		values = append(values, common.KeyValuePair{Key: "guestinfo.key0", Value: "last"}, common.KeyValuePair{Key: "numa.vcpu.preferHT", Value: "TRUE"})
+		raw, err := json.Marshal(map[string]any{"extraConfig": entries})
+		Expect(err).NotTo(HaveOccurred())
+		spec := vmopv1.VirtualMachineClassSpec{
+			ConfigSpec: raw,
+			Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
+				ExtraConfig:     &vmopv1.ExtraConfigListPolicy{Default: &values},
+				PreferHTEnabled: vmopv1.FixedClassBool(false),
+			},
+		}
+		projected, err := vmopv1.ProjectClassConfigSpec(&spec)
+		Expect(err).NotTo(HaveOccurred())
+		doc, err := vmopv1.ParseClassConfigSpec(projected)
+		Expect(err).NotTo(HaveOccurred())
+		var actual []json.RawMessage
+		present, err := doc.Get("extraConfig", &actual)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(present).To(BeTrue())
+		Expect(actual).To(HaveLen(517))
+		for i := 0; i < 4; i++ {
+			Expect(actual[i]).To(MatchJSON(entries[i]))
+		}
+		for i, raw := range actual[4:] {
+			var item struct {
+				Key   string
+				Value struct {
+					Value string `json:"_value"`
+				}
+				Future        *int
+				AnotherFuture *int
+			}
+			Expect(json.Unmarshal(raw, &item)).To(Succeed())
+			switch {
+			case i < 511:
+				n := i + 1
+				Expect(item.Key).To(Equal(fmt.Sprintf("guestinfo.key%d", n)))
+				Expect(item.Value.Value).To(Equal(fmt.Sprintf("typed%d", n)))
+				if n < 256 {
+					Expect(item.Future).To(HaveValue(Equal(n)))
+				}
+			case i == 511:
+				Expect(item.Key).To(Equal("guestinfo.key0"))
+				Expect(item.Value.Value).To(Equal("last"))
+				Expect(item.Future).To(HaveValue(Equal(0)))
+				Expect(item.AnotherFuture).To(HaveValue(Equal(42)))
+			default:
+				Expect(item.Key).To(Equal("numa.vcpu.preferHT"))
+				Expect(item.Value.Value).To(Equal("FALSE"))
+			}
+		}
+	})
 })

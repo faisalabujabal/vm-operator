@@ -23,6 +23,7 @@ import (
 
 	"github.com/vmware-tanzu/vm-operator/pkg/builder"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
+	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 	"github.com/vmware-tanzu/vm-operator/webhooks/common"
 )
 
@@ -72,6 +73,7 @@ func (v validator) ValidateCreate(ctx *pkgctx.WebhookRequestContext) admission.R
 	var fieldErrs field.ErrorList
 
 	fieldErrs = append(fieldErrs, v.validatePolicies(ctx, vmClass)...)
+	fieldErrs = append(fieldErrs, vmclass.ValidateAdvancedPolicies(&vmClass.Spec)...)
 	fieldErrs = append(fieldErrs, validateComputePolicies(vmClass)...)
 
 	validationErrs := make([]string, 0, len(fieldErrs))
@@ -87,13 +89,16 @@ func (v validator) ValidateDelete(*pkgctx.WebhookRequestContext) admission.Respo
 }
 
 func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.Response {
+	// Resource request/limit update validation remains a separate follow-up.
+	// Advanced policy relationships apply to both create and update.
 	vmClass, err := v.vmClassFromUnstructured(ctx.Obj)
 	if err != nil {
 		return webhook.Errored(http.StatusBadRequest, err)
 	}
+	fieldErrs := vmclass.ValidateAdvancedPolicies(&vmClass.Spec)
 	// Keep the existing allocation-update behavior; validate the new compute
 	// enum domain on both create and update.
-	fieldErrs := validateComputePolicies(vmClass)
+	fieldErrs = append(fieldErrs, validateComputePolicies(vmClass)...)
 	validationErrs := make([]string, 0, len(fieldErrs))
 	for _, fieldErr := range fieldErrs {
 		validationErrs = append(validationErrs, fieldErr.Error())

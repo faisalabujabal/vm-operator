@@ -129,6 +129,7 @@ func classScalarCopy[T ~bool | ~int32 | ~int64 | ~string](value *T) *T {
 // that API's writer changed their projected value. Projected is the preserved
 // class converted down and back up without its conversion annotation.
 func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
+	restoreClassAdvanced(dst, preserved, projected)
 	for _, group := range []struct {
 		dst, preserved, projected *VirtualMachineClassResourceSpec
 	}{

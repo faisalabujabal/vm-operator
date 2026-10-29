@@ -45,9 +45,6 @@ type VirtualMachineClassCPUAdvancedSpec struct {
 	// PerformanceCountersEnabled controls the vPMCEnabled setting.
 	// +optional
 	PerformanceCountersEnabled *BoolPolicy `json:"performanceCountersEnabled,omitempty"`
-	// ExposeVNUMAOnCPUHotAdd controls the virtualNuma.exposeVnumaOnCpuHotadd setting.
-	// +optional
-	ExposeVNUMAOnCPUHotAdd *BoolPolicy `json:"exposeVnumaOnCpuHotadd,omitempty"`
 }
 
 // VirtualMachineClassMemoryAdvancedSpec describes class memory presets and policy.

@@ -454,9 +454,6 @@ type VirtualMachineCPUAllocationStatus struct {
 	// HotRemoveEnabled reports the observed CPU hot-remove capability.
 	// +optional
 	HotRemoveEnabled *bool `json:"hotRemoveEnabled,omitempty"`
-	// ExposeVNUMAOnCPUHotAdd reports whether vNUMA is exposed with CPU hot-add.
-	// +optional
-	ExposeVNUMAOnCPUHotAdd *bool `json:"exposeVnumaOnCpuHotadd,omitempty"`
 
 	// +optional
 

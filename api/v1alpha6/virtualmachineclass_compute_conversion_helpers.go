@@ -48,7 +48,6 @@ func classComputeBoolFields(spec *VirtualMachineClassSpec) []classComputeBoolFie
 		{"flags.vvtdEnabled", &spec.CPUAdvanced.IOMMUEnabled},
 		{"nestedHVEnabled", &spec.CPUAdvanced.NestedHardwareVirtualizationEnabled},
 		{"vPMCEnabled", &spec.CPUAdvanced.PerformanceCountersEnabled},
-		{"virtualNuma.exposeVnumaOnCpuHotadd", &spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd},
 		{"memoryHotAddEnabled", &spec.MemoryAdvanced.HotAddEnabled},
 		{"memoryReservationLockedToMax", &spec.MemoryAdvanced.ReservationLockedToMax},
 	}

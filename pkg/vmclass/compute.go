@@ -32,7 +32,6 @@ func applyComputeDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachine
 	applyBoolDefault(&vm.Spec.CPUAdvanced.IOMMUEnabled, cpu.IOMMUEnabled, reset)
 	applyBoolDefault(&vm.Spec.CPUAdvanced.NestedHardwareVirtualizationEnabled, cpu.NestedHardwareVirtualizationEnabled, reset)
 	applyBoolDefault(&vm.Spec.CPUAdvanced.PerformanceCountersEnabled, cpu.PerformanceCountersEnabled, reset)
-	applyBoolDefault(&vm.Spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd, cpu.ExposeVNUMAOnCPUHotAdd, reset)
 	applyBoolDefault(&vm.Spec.MemoryAdvanced.HotAddEnabled, memory.HotAddEnabled, reset)
 	applyBoolDefault(&vm.Spec.MemoryAdvanced.ReservationLockedToMax, memory.ReservationLockedToMax, reset)
 	// The lock expresses full reservation; the VM API forbids a separate

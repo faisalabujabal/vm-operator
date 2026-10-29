@@ -15260,12 +15260,6 @@ spec:
                   CPUAdvanced describes advanced CPU scheduling and topology configuration
                   for this VM.
                 properties:
-                  exposeVnumaOnCpuHotadd:
-                    description: |-
-                      ExposeVNUMAOnCPUHotAdd permits vNUMA exposure with CPU hot-add enabled.
-                      Maps to ConfigSpec.VirtualNuma.ExposeVnumaOnCpuHotadd.
-                      Requires hardware version vmx-20 or later and power-off to apply.
-                    type: boolean
                   hotAddEnabled:
                     description: |-
                       HotAddEnabled allows vCPUs to be added to the VM while it is powered
@@ -15324,8 +15318,8 @@ spec:
                     type: boolean
                   topology:
                     description: |-
-                      Topology describes CPU topology configuration (cores per socket,
-                      cores per NUMA node, vNUMA exposure on hot-add). All sub-fields are
+                      Topology describes CPU topology configuration (cores per socket
+                      and the number of virtual NUMA nodes). All sub-fields are
                       optional and used together to define the guest CPU layout.
                     properties:
                       coresPerSocket:
@@ -17435,10 +17429,6 @@ spec:
                           Maps to VirtualHardware.numCoresPerSocket.
                         format: int32
                         type: integer
-                      exposeVnumaOnCpuHotadd:
-                        description: ExposeVNUMAOnCPUHotAdd reports whether vNUMA
-                          is exposed with CPU hot-add.
-                        type: boolean
                       hotAddEnabled:
                         description: |-
                           HotAddEnabled describes whether CPU hot-add is observed as enabled.

@@ -1223,21 +1223,6 @@ spec:
               cpuAdvanced:
                 description: CPUAdvanced describes advanced CPU presets and policies.
                 properties:
-                  exposeVnumaOnCpuHotadd:
-                    description: ExposeVNUMAOnCPUHotAdd controls the virtualNuma.exposeVnumaOnCpuHotadd
-                      setting.
-                    properties:
-                      allowOverride:
-                        description: AllowOverride permits a different value below
-                          this class.
-                        type: boolean
-                      default:
-                        description: Default is the value supplied by the class.
-                        type: boolean
-                    type: object
-                    x-kubernetes-validations:
-                    - message: a fixed boolean requires a default
-                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
                   hotAddEnabled:
                     description: HotAddEnabled controls the cpuHotAddEnabled setting.
                     properties:

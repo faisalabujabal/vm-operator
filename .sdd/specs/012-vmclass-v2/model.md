@@ -54,6 +54,10 @@ Device items: independent count bounds and required entries are deferred. A devi
 | `resources.size.{cpu,memory}` | Number | CPU in vCPUs. |
 | `resources.{requests,limits}.{cpu,memory}` | Number | CPU in vCPUs. The incremental migration retains the existing Supervisor-wide minimum host frequency for conversion to VM MHz. Cluster-specific conversion remains an open question and must not change the vCPU definition implicitly. |
 | `cpuAdvanced.*`, `memoryAdvanced.*`, `bootOptions.*`, `advanced.*` | per field | Same paths as `VirtualMachine.spec`. |
+| `bootOptions.{bootDelay,bootRetryDelay}` | `LongRange`, milliseconds | Nonnegative inclusive bounds/defaults, at most 9223372036854 ms to fit VM durations. Converted legacy values are fixed ranges. |
+| `bootOptions.{bootRetry,efiSecureBoot}` | `BoolPolicy` | Materialized into the existing VM `Enabled`/`Disabled` scalar values. Explicit false is retained. |
+| `bootOptions.{firmware,networkBootProtocol}` | Deferred from C1 | T103g2 preserves the legacy image/firmware and network-protocol precedence before promoting these paths. |
+| `bootOptions.enterBootSetup` | Deferred from C1 | T103g3 defines the one-shot lifecycle and adds its missing VM counterpart. |
 | `advanced.extraConfig` | `ListPolicy` | At the VM's path. |
 | `hardware.devices.{vgpuDevices,dynamicDirectPathIODevices}` | `ListPolicy` of device items | See "Value shapes". |
 | `hardware.*` | per field | Settings that aren't in the VM spec but are exposed or checked. |

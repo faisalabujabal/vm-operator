@@ -341,3 +341,5 @@ make clean  # Removes *.test binaries, coverage files, and build artifacts
 - **Feature Gates** - Tests feature flag functionality
 
 This E2E framework ensures VM Operator reliability across diverse environments and use cases, providing confidence in production deployments.
+
+Boot C1 extends the experimental typed-class VM lifecycle and staged schema-upgrade fixtures with millisecond boot delay/retry delay, retry enabled and EFI secure boot disabled. The baseline DCLI class sets these values in its raw ConfigSpec; candidate verification checks the promoted policies and actual vSphere boot configuration of both preserved and newly created VMs. These scenarios are written and compile checked; cluster execution is pending. Firmware/network protocol compatibility and the one-shot boot-setup lifecycle remain tracked separately in the vmclass-v2 tasks.

@@ -25,6 +25,7 @@ import (
 	vmopv1a5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	"github.com/vmware-tanzu/vm-operator/pkg/config/capabilities"
+	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/vcenter"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/wcp"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/manifestbuilders"
@@ -135,6 +136,9 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		cpuCount, memoryMB := checkpoint.CPU, checkpoint.MemoryMB
 		Expect(input.WCPClient.CreateVMClass(wcp.VMClassSpec{
 			ID: checkpoint.ClassName, CPUCount: &cpuCount, MemoryMB: &memoryMB,
+			ConfigSpec: &types.VirtualMachineConfigSpec{BootOptions: &types.VirtualMachineBootOptions{
+				BootDelay: 1000, BootRetryDelay: 1500, BootRetryEnabled: ptr.To(true), EfiSecureBootEnabled: ptr.To(false),
+			}},
 		})).To(Succeed())
 		Expect(vmservice.EnsureNamespaceHasAccess(input.WCPClient, checkpoint.ClassName, checkpoint.Namespace)).To(Succeed())
 
@@ -244,6 +248,12 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(class.Spec.Resources.Size.Memory).NotTo(BeNil())
 		Expect(class.Spec.Resources.Size.Memory.Default.Value()).To(Equal(int64(checkpoint.MemoryMB * 1024 * 1024)))
 
+		Expect(class.Spec.BootOptions).NotTo(BeNil())
+		Expect(*class.Spec.BootOptions.BootDelay.Default).To(Equal(int64(1000)))
+		Expect(*class.Spec.BootOptions.BootRetryDelay.Default).To(Equal(int64(1500)))
+		Expect(*class.Spec.BootOptions.BootRetry.Default).To(BeTrue())
+		Expect(*class.Spec.BootOptions.EFISecureBoot.Default).To(BeFalse())
+
 		By("checking the original VM identity, materialized resources, and power state after upgrade")
 		vm := &vmopv1.VirtualMachine{}
 		Eventually(func(g Gomega) {
@@ -266,6 +276,11 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(collector.RetrieveOne(ctx, vmRef, []string{"config"}, &vmMO)).To(Succeed())
 		Expect(vmMO.Config.Hardware.NumCPU).To(Equal(checkpoint.RealizedCPU))
 		Expect(vmMO.Config.Hardware.MemoryMB).To(Equal(checkpoint.RealizedMemoryMB))
+		Expect(vmMO.Config.BootOptions).NotTo(BeNil())
+		Expect(vmMO.Config.BootOptions.BootDelay).To(Equal(int64(1000)))
+		Expect(vmMO.Config.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
+		Expect(vmMO.Config.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
+		Expect(ptr.DerefWithDefault(vmMO.Config.BootOptions.EfiSecureBootEnabled, false)).To(BeFalse())
 
 		By("creating a new typed v1alpha6 VM using the upgraded legacy class")
 		postUpgradeVMName := checkpoint.VMName + "-post"
@@ -289,6 +304,11 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(collector.RetrieveOne(ctx, postUpgradeVMRef, []string{"config"}, &postUpgradeVMO)).To(Succeed())
 		Expect(postUpgradeVMO.Config.Hardware.NumCPU).To(BeEquivalentTo(checkpoint.CPU))
 		Expect(postUpgradeVMO.Config.Hardware.MemoryMB).To(BeEquivalentTo(checkpoint.MemoryMB))
+		Expect(postUpgradeVMO.Config.BootOptions).NotTo(BeNil())
+		Expect(postUpgradeVMO.Config.BootOptions.BootDelay).To(Equal(int64(1000)))
+		Expect(postUpgradeVMO.Config.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
+		Expect(postUpgradeVMO.Config.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
+		Expect(ptr.DerefWithDefault(postUpgradeVMO.Config.BootOptions.EfiSecureBootEnabled, false)).To(BeFalse())
 
 		verificationPassed = true
 	})

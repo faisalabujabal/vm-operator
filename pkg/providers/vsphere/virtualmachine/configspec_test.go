@@ -3038,3 +3038,25 @@ func assertVMTags(
 	}
 	Expect(configSpec.TagSpecs).To(ConsistOf(tagSpecs))
 }
+
+var _ = Describe("Class boot policy configuration", func() {
+	It("projects class milliseconds and explicit false without replacing unrelated raw boot options", func() {
+		raw := vimtypes.VirtualMachineConfigSpec{BootOptions: &vimtypes.VirtualMachineBootOptions{
+			EnterBIOSSetup: ptr.To(true), EfiSecureBootEnabled: ptr.To(true), BootDelay: 123,
+		}}
+		class := vmopv1.VirtualMachineClassSpec{BootOptions: &vmopv1.VirtualMachineClassBootOptions{
+			EFISecureBoot: vmopv1.FixedClassBool(false), BootRetry: vmopv1.FixedClassBool(true),
+			BootDelay: vmopv1.FixedClassLong(0), BootRetryDelay: vmopv1.FixedClassLong(1500),
+		}}
+		var err error
+		class.ConfigSpec, err = pkgutil.MarshalConfigSpecToJSON(raw)
+		Expect(err).NotTo(HaveOccurred())
+		got, err := virtualmachine.ClassConfigSpecFromClassSpec(pkgcfg.NewContextWithDefaultConfig(), &class)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.BootOptions.BootDelay).To(BeZero())
+		Expect(got.BootOptions.BootRetryDelay).To(Equal(int64(1500)))
+		Expect(got.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
+		Expect(got.BootOptions.EfiSecureBootEnabled).To(Equal(ptr.To(false)))
+		Expect(got.BootOptions.EnterBIOSSetup).To(Equal(ptr.To(true)))
+	})
+})

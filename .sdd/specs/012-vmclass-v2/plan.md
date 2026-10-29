@@ -22,6 +22,12 @@ Class conversion annotation preservation and metadata isolation use shared hub h
 
 Push field/version/value combinations, nil/zero/empty handling, conversion round trips and older-writer edits into unit tests. Use envtest for storage/pruning/CEL/admission and conversion-webhook behavior, and vcsim/provider tests for configuration translation. E2E proves representative complete workflows: a new-shape class produces the expected VM spec and realized configuration; legacy classes and healthy workloads survive a real baseline-to-candidate upgrade and remain usable afterward. Old-version API writes to the candidate alone are not upgrade coverage. Each PR records what lower layers prove and the remaining E2E responsibilities. Test results must distinguish executed checks from unavailable testbed coverage.
 
+### Boot C1 delivery boundary
+
+Boot C1 targets the CPU/memory B base to reuse concrete `BoolPolicy`/`LongRange` types, raw ConfigSpec documents, annotation restoration and a single class-resolution/defaulting dispatcher. The batch includes `bootDelay`, `bootRetry`, `bootRetryDelay` and `efiSecureBoot`. Delays are inclusive integer ranges in milliseconds, constrained to the nonnegative range representable by the existing VM duration API; zero and explicit false remain distinct from omission. Class changes clear the previous class's boot defaults while leaving VM-only firmware, network protocol and boot order intact. Creation preserves VM values for fields the class does not supply; ordinary updates do not refresh boot values after a class edit.
+
+Firmware and network protocol are tracked separately in T103g2 because legacy firmware is subject to image precedence and raw network protocol is overwritten by the boot reconciler. Their promotion must not silently change existing VM behavior. The one-shot `enterBootSetup` lifecycle and its missing VM counterpart are tracked in T103g3. These deferrals do not complete the broader boot/advanced category T103g; advanced fields remain a separate C2 batch. Boot order is VM-specific and is not introduced as a class policy.
+
 ## Technical context
 
 | Field | Value |

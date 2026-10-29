@@ -7,6 +7,7 @@ package vmclass_test
 import (
 	"context"
 	"errors"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -139,3 +140,52 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 		Expect(vm.Spec.Resources).To(BeNil())
 	})
 })
+
+var _ = Describe("Class boot defaults", Label(testlabels.Mutation, testlabels.API), func() {
+	It("maps class booleans and milliseconds without changing VM-only boot choices", func() {
+		vm := &vmopv1.VirtualMachine{}
+		vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{Firmware: vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI}
+		defaults := vmopv1.VirtualMachineClassSpec{BootOptions: &vmopv1.VirtualMachineClassBootOptions{
+			EFISecureBoot: vmopv1.FixedClassBool(false), BootRetry: vmopv1.FixedClassBool(true),
+			BootDelay: vmopv1.FixedClassLong(0), BootRetryDelay: vmopv1.FixedClassLong(1500),
+		}}
+		Expect(applyTestBootDefaults(vm, defaults, false)).To(BeTrue())
+		Expect(vm.Spec.BootOptions.Firmware).To(Equal(vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI))
+		Expect(vm.Spec.BootOptions.EFISecureBoot).To(Equal(vmopv1.VirtualMachineBootOptionsEFISecureBootDisabled))
+		Expect(vm.Spec.BootOptions.BootRetry).To(Equal(vmopv1.VirtualMachineBootOptionsBootRetryEnabled))
+		Expect(vm.Spec.BootOptions.BootDelay.Duration).To(BeZero())
+		Expect(vm.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
+	})
+	It("keeps inline values when the create class has no default and clears them on a class change", func() {
+		vm := &vmopv1.VirtualMachine{}
+		vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootDelay: &metav1.Duration{Duration: time.Second}, Firmware: vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI}
+		Expect(applyTestBootDefaults(vm, vmopv1.VirtualMachineClassSpec{}, false)).To(BeFalse())
+		Expect(applyTestBootDefaults(vm, vmopv1.VirtualMachineClassSpec{}, true)).To(BeTrue())
+		Expect(vm.Spec.BootOptions.BootDelay).To(BeNil())
+		Expect(vm.Spec.BootOptions.Firmware).To(Equal(vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI))
+	})
+})
+
+func applyTestBootDefaults(vm *vmopv1.VirtualMachine, spec vmopv1.VirtualMachineClassSpec, reset bool) bool {
+	ctx := pkgcfg.NewContextWithDefaultConfig()
+	pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) {
+		c.Features.TelcoVMServiceAPI = true
+		c.Features.VMResizeCPUMemory = true
+	})
+	scheme := runtime.NewScheme()
+	Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+	vm.Namespace, vm.Spec.ClassName = "tenant", "boot-class"
+	class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: vm.Spec.ClassName, Namespace: vm.Namespace}, Spec: spec}
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(class).Build()
+	var oldVM *vmopv1.VirtualMachine
+	if reset {
+		oldVM = vm.DeepCopy()
+		oldVM.Spec.ClassName = "old-class"
+	}
+	provider := resourceProvider(func(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
+		return nil, nil
+	})
+	changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
+	Expect(err).NotTo(HaveOccurred())
+	return changed
+}

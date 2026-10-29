@@ -84,6 +84,7 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 		Expect(changed).To(BeFalse())
 		Expect(calls).To(BeZero())
 	})
+
 	It("does not refresh boot defaults on an ordinary update after a class edit", func() {
 		class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: vmopv1.FixedClassLong(5000)}
 		Expect(client.Update(ctx, class)).To(Succeed())
@@ -94,6 +95,22 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 		Expect(changed).To(BeFalse())
 		Expect(vm.Spec.BootOptions.BootDelay.Duration).To(Equal(time.Second))
 		Expect(calls).To(BeZero())
+	})
+
+	It("materializes native raw presets while typed defaults win without changing the class", func() {
+		class.Spec.ConfigSpec = []byte(`{"_typeName":"VirtualMachineConfigSpec","cpuHotAddEnabled":true,"nestedHVEnabled":true}`)
+		class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
+		Expect(client.Update(ctx, class)).To(Succeed())
+		original := class.DeepCopy()
+		changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+		Expect(vm.Spec.CPUAdvanced.HotAddEnabled).To(HaveValue(BeFalse()))
+		Expect(vm.Spec.CPUAdvanced.NestedHardwareVirtualizationEnabled).To(HaveValue(BeTrue()))
+		Expect(calls).To(Equal(1))
+		Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class)).To(Succeed())
+		Expect(class.Spec).To(Equal(original.Spec))
+
 	})
 	It("clears allocations from the previous class on a class change", func() {
 		oldVM := vm.DeepCopy()

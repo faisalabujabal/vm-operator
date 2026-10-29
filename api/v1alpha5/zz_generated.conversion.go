@@ -2558,7 +2558,6 @@ func autoConvert_v1alpha6_VirtualMachineCPUAllocationStatus_To_v1alpha5_VirtualM
 	// WARNING: in.LatencySensitivity requires manual conversion: does not exist in peer-type
 	// WARNING: in.HotAddEnabled requires manual conversion: does not exist in peer-type
 	// WARNING: in.HotRemoveEnabled requires manual conversion: does not exist in peer-type
-	// WARNING: in.ExposeVNUMAOnCPUHotAdd requires manual conversion: does not exist in peer-type
 	// WARNING: in.IOMMUEnabled requires manual conversion: does not exist in peer-type
 	// WARNING: in.NestedHardwareVirtualizationEnabled requires manual conversion: does not exist in peer-type
 	// WARNING: in.PerformanceCountersEnabled requires manual conversion: does not exist in peer-type

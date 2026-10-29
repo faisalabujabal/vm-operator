@@ -1708,15 +1708,14 @@ var _ = Describe("New CPU capability flags", Label("api"), func() {
 		}
 	})
 	It("stages enabled flags while powered off and reports the powered-on lock", func() {
-		vm := vmopv1.VirtualMachine{Spec: vmopv1.VirtualMachineSpec{CPUAdvanced: &vmopv1.VirtualMachineCPUAdvancedSpec{HotRemoveEnabled: ptr.To(true), ExposeVNUMAOnCPUHotAdd: ptr.To(true)}}}
+		vm := vmopv1.VirtualMachine{Spec: vmopv1.VirtualMachineSpec{CPUAdvanced: &vmopv1.VirtualMachineCPUAdvancedSpec{HotRemoveEnabled: ptr.To(true)}}}
 		ci := vimtypes.VirtualMachineConfigInfo{Version: vimtypes.VMX20.String()}
 		var cs vimtypes.VirtualMachineConfigSpec
 		_, locked := vmopv1util.OverwriteSpecComputeConfig(vm, ci, true, &cs)
-		Expect(locked).To(ContainElements("cpuAdvanced.hotRemoveEnabled", "cpuAdvanced.exposeVnumaOnCpuHotadd"))
+		Expect(locked).To(ContainElement("cpuAdvanced.hotRemoveEnabled"))
 		Expect(cs.CpuHotRemoveEnabled).To(BeNil())
 		_, locked = vmopv1util.OverwriteSpecComputeConfig(vm, ci, false, &cs)
 		Expect(locked).To(BeEmpty())
 		Expect(cs.CpuHotRemoveEnabled).To(Equal(ptr.To(true)))
-		Expect(cs.VirtualNuma.ExposeVnumaOnCpuHotadd).To(Equal(ptr.To(true)))
 	})
 })

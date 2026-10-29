@@ -155,8 +155,8 @@ type VirtualMachineCPUAdvancedSpec struct {
 
 	// +optional
 
-	// Topology describes CPU topology configuration (cores per socket,
-	// cores per NUMA node, vNUMA exposure on hot-add). All sub-fields are
+	// Topology describes CPU topology configuration (cores per socket
+	// and the number of virtual NUMA nodes). All sub-fields are
 	// optional and used together to define the guest CPU layout.
 	Topology *VirtualMachineCPUTopologySpec `json:"topology,omitempty"`
 
@@ -174,11 +174,6 @@ type VirtualMachineCPUAdvancedSpec struct {
 	// Maps to ConfigSpec.CpuHotRemoveEnabled.
 	// +optional
 	HotRemoveEnabled *bool `json:"hotRemoveEnabled,omitempty"`
-	// ExposeVNUMAOnCPUHotAdd permits vNUMA exposure with CPU hot-add enabled.
-	// Maps to ConfigSpec.VirtualNuma.ExposeVnumaOnCpuHotadd.
-	// Requires hardware version vmx-20 or later and power-off to apply.
-	// +optional
-	ExposeVNUMAOnCPUHotAdd *bool `json:"exposeVnumaOnCpuHotadd,omitempty"`
 
 	// +optional
 

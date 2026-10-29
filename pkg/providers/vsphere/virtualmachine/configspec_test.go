@@ -3102,7 +3102,7 @@ func assertVMTags(
 var _ = Describe("Typed class compute configuration", func() {
 	It("uses the shared projection and preserves raw unrelated values", func() {
 		spec := &vmopv1.VirtualMachineClassSpec{
-			ConfigSpec:     []byte(`{"_typeName":"VirtualMachineConfigSpec","annotation":"keep","cpuHotRemoveEnabled":true,"flags":{"vvtdEnabled":true}}`),
+			ConfigSpec:     []byte(`{"_typeName":"VirtualMachineConfigSpec","annotation":"keep","cpuHotRemoveEnabled":true,"virtualNuma":{"exposeVnumaOnCpuHotadd":true},"flags":{"vvtdEnabled":true}}`),
 			CPUAdvanced:    &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotRemoveEnabled: vmopv1.FixedClassBool(false), IOMMUEnabled: vmopv1.FixedClassBool(false)},
 			MemoryAdvanced: &vmopv1.VirtualMachineClassMemoryAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(true)},
 		}
@@ -3112,5 +3112,6 @@ var _ = Describe("Typed class compute configuration", func() {
 		Expect(actual.CpuHotRemoveEnabled).To(Equal(ptr.To(false)))
 		Expect(actual.Flags.VvtdEnabled).To(Equal(ptr.To(false)))
 		Expect(actual.MemoryHotAddEnabled).To(Equal(ptr.To(true)))
+		Expect(actual.VirtualNuma.ExposeVnumaOnCpuHotadd).To(Equal(ptr.To(true)))
 	})
 })

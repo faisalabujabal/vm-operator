@@ -437,10 +437,9 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(spoke.ConvertTo(&hub)).To(Succeed())
 				Expect(*hub.Spec.CPUAdvanced.Topology.VNUMANodeCount.Default).To(Equal(int32(2)))
 				Expect(*hub.Spec.CPUAdvanced.HotRemoveEnabled.Default).To(BeTrue())
-				Expect(*hub.Spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd.Default).To(BeFalse())
 				Expect(*hub.Spec.CPUAdvanced.IOMMUEnabled.Default).To(BeFalse())
 				Expect(*hub.Spec.CPUAdvanced.LatencySensitivity.Default).To(Equal("HighWithHyperthreading"))
-				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","numCPUs":16,"flags":{"future":{"value":12345678901234567890}}}`))
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","numCPUs":16,"virtualNuma":{"exposeVnumaOnCpuHotadd":false},"flags":{"future":{"value":12345678901234567890}}}`))
 			})
 
 			It("preserves compute policies and honors individual older-writer edits", func() {

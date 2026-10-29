@@ -159,7 +159,7 @@ func projectClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDoc
 		// An older writer may have stored an unsupported bag shape. Keep it
 		// intact instead of fabricating a valid replacement; the conversion
 		// annotation retains policies that cannot be projected into this bag.
-		return nil
+		return nil //nolint:nilerr // Unsupported legacy shapes must remain readable; annotation preserves unprojectable policies.
 	}
 	entries, err := overlayClassExtraConfig(entries, values)
 	if err != nil {

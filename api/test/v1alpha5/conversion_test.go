@@ -28,6 +28,7 @@ import (
 	"github.com/vmware-tanzu/vm-operator/api/test/utilconversion/fuzztests"
 	vmopv1a5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	"github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
 )
 
 var _ = Describe("FuzzyConversion", Label("api", "fuzz"), func() {
@@ -293,6 +294,91 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 		{"v1alpha5", func() ctrlconversion.Convertible { return &vmopv1a5.VirtualMachineClass{} }},
 	} {
 		Context(version.name, func() {
+			It("preserves unsupported duplicate NUMA members and null ExtraConfig values", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":{"extraConfig":[{"key":"numa.nodeAffinity","value":"0,0"},{"key":"null.raw","value":null},{"key":"null.typed","value":{"_typeName":"string","_value":null}}]}}}`), spoke)).To(Succeed())
+				hub := vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: &vmopv1.BoolPolicy{}}}}
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.Advanced).To(BeNil())
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"extraConfig":[{"key":"numa.nodeAffinity","value":"0,0"},{"key":"null.raw","value":null},{"key":"null.typed","value":{"_typeName":"string","_value":null}}]}`))
+			})
+			It("overlays typed ExtraConfig by key without duplicates and retains unrelated raw properties", func() {
+				f := false
+				hub := classWithPolicies()
+				hub.Spec.ConfigSpec = json.RawMessage(`{"annotation":"keep","extraConfig":[{"_typeName":"OptionValue","key":"numa.vcpu.preferHT","value":{"_typeName":"string","_value":"TRUE"},"future":42},{"key":"unrelated","value":{"_typeName":"string","_value":"keep"}}]}`)
+				hub.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: &vmopv1.BoolPolicy{Default: &f}, ExtraConfig: &vmopv1.ExtraConfigListPolicy{Default: &[]common.KeyValuePair{{Key: "numa.vcpu.preferHT", Value: "TRUE"}}}}
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				encoded, err := json.Marshal(spoke)
+				Expect(err).NotTo(HaveOccurred())
+				var result struct {
+					Spec struct {
+						ConfigSpec struct {
+							ExtraConfig []struct {
+								Key   string
+								Value struct {
+									Value string `json:"_value"`
+								}
+								Future int
+							}
+						}
+					}
+				}
+				Expect(json.Unmarshal(encoded, &result)).To(Succeed())
+				Expect(result.Spec.ConfigSpec.ExtraConfig).To(HaveLen(2))
+				count := 0
+				for _, entry := range result.Spec.ConfigSpec.ExtraConfig {
+					if entry.Key == "numa.vcpu.preferHT" {
+						count++
+						Expect(entry.Value.Value).To(Equal("FALSE"))
+						Expect(entry.Future).To(Equal(42))
+					}
+				}
+				Expect(count).To(Equal(1))
+			})
+
+			It("elevates advanced values while retaining unknown and non-string ExtraConfig", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":{"_typeName":"VirtualMachineConfigSpec","changeTrackingEnabled":false,"futureField":{"n":9007199254740993},"extraConfig":[{"_typeName":"OptionValue","key":"numa.vcpu.preferHT","value":{"_typeName":"string","_value":"TRUE"}},{"key":"numa.nodeAffinity","value":"0,2"},{"key":"guestinfo.example","value":{"_typeName":"string","_value":"hello"}},{"key":"future.numeric","value":9007199254740993},{"key":"future.opaque","value":"hello","futureProperty":true}]}}}`), spoke)).To(Succeed())
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.Advanced).NotTo(BeNil())
+				Expect(hub.Spec.Advanced.ChangeBlockTracking.Default).To(HaveValue(BeFalse()))
+				Expect(hub.Spec.Advanced.PreferHTEnabled.Default).To(HaveValue(BeTrue()))
+				Expect(*hub.Spec.Advanced.PNUMANodeAffinity.Default).To(Equal([]int32{0, 2}))
+				Expect((*hub.Spec.Advanced.ExtraConfig.Default)[0].Key).To(Equal("guestinfo.example"))
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","futureField":{"n":9007199254740993},"extraConfig":[{"key":"future.numeric","value":9007199254740993},{"key":"future.opaque","value":"hello","futureProperty":true}]}`))
+			})
+			It("preserves advanced policy metadata and honors one older field edit", func() {
+				hub := classWithPolicies()
+				f, t := false, true
+				glob := "guestinfo.*"
+				hub.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{
+					ChangeBlockTracking: &vmopv1.BoolPolicy{Default: &t, AllowOverride: &t},
+					PreferHTEnabled:     &vmopv1.BoolPolicy{Default: &f, AllowOverride: &t},
+					ExtraConfig:         &vmopv1.ExtraConfigListPolicy{Allowed: &[]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Glob: &glob}}}},
+				}
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				var unchanged vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&unchanged)).To(Succeed())
+				Expect(unchanged.Spec.Advanced).To(Equal(hub.Spec.Advanced))
+				var obj map[string]interface{}
+				encoded, err := json.Marshal(spoke)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(json.Unmarshal(encoded, &obj)).To(Succeed())
+				obj["spec"].(map[string]interface{})["configSpec"].(map[string]interface{})["changeTrackingEnabled"] = false
+				encoded, err = json.Marshal(obj)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(json.Unmarshal(encoded, spoke)).To(Succeed())
+				var edited vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&edited)).To(Succeed())
+				Expect(edited.Spec.Advanced.ChangeBlockTracking.Default).To(HaveValue(BeFalse()))
+				Expect(edited.Spec.Advanced.ChangeBlockTracking.AllowOverride).To(HaveValue(BeFalse()))
+				Expect(edited.Spec.Advanced.PreferHTEnabled).To(Equal(hub.Spec.Advanced.PreferHTEnabled))
+				Expect(edited.Spec.Advanced.ExtraConfig).To(Equal(hub.Spec.Advanced.ExtraConfig))
+			})
+
 			It("moves legacy scalars without changing units, devices, storage or reservation slots", func() {
 				spoke := version.newSpoke()
 				Expect(json.Unmarshal([]byte(`{

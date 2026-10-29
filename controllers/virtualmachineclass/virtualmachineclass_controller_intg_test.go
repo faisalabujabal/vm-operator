@@ -141,6 +141,38 @@ func intgTestsReconcile() {
 					g.Expect(inactiveCount).To(Equal(1))
 				}).Should(Succeed())
 			})
+			It("creates a new instance for an advanced policy-only edit", func() {
+				Eventually(func(g Gomega) {
+					var list vmopv1.VirtualMachineClassInstanceList
+					g.Expect(ctx.Client.List(ctx, &list, client.InNamespace(vmClass.Namespace))).To(Succeed())
+					g.Expect(list.Items).To(HaveLen(1))
+				}).Should(Succeed())
+
+				By("Modify the class config")
+				vmClass.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: &vmopv1.BoolPolicy{Default: ptr.To(true), AllowOverride: ptr.To(true)}}
+
+				Expect(ctx.Client.Update(ctx, vmClass)).To(Succeed())
+
+				By("Validating that only one instance is active")
+				Eventually(func(g Gomega) {
+					var list vmopv1.VirtualMachineClassInstanceList
+					g.Expect(ctx.Client.List(ctx, &list, client.InNamespace(vmClass.Namespace))).To(Succeed())
+					g.Expect(list.Items).To(HaveLen(2))
+
+					activeCount := 0
+					inactiveCount := 0
+					for _, item := range list.Items {
+						if _, hasActiveLabel := item.Labels[vmopv1.VMClassInstanceActiveLabelKey]; hasActiveLabel {
+							activeCount++
+						} else {
+							inactiveCount++
+						}
+					}
+
+					g.Expect(activeCount).To(Equal(1))
+					g.Expect(inactiveCount).To(Equal(1))
+				}).Should(Succeed())
+			})
 		})
 	})
 }

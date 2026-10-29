@@ -143,6 +143,23 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Eventually(func(g Gomega) {
 			g.Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: checkpoint.ClassName}, legacyClass)).To(Succeed())
 		}, 5*time.Minute, 5*time.Second).Should(Succeed())
+		By("setting legacy class advanced presets before the baseline VM is created")
+		legacyConfig := map[string]json.RawMessage{}
+		if len(legacyClass.Spec.ConfigSpec) > 0 {
+			Expect(json.Unmarshal(legacyClass.Spec.ConfigSpec, &legacyConfig)).To(Succeed())
+		}
+		legacyConfig["_typeName"] = json.RawMessage(`"VirtualMachineConfigSpec"`)
+		legacyConfig["changeTrackingEnabled"] = json.RawMessage(`false`)
+		legacyExtra := []json.RawMessage{}
+		if raw, ok := legacyConfig["extraConfig"]; ok {
+			Expect(json.Unmarshal(raw, &legacyExtra)).To(Succeed())
+		}
+		legacyExtra = append(legacyExtra, json.RawMessage(`{"_typeName":"OptionValue","key":"example.vmclass-upgrade","value":{"_typeName":"string","_value":"preserved"}}`))
+		legacyConfig["extraConfig"], err = json.Marshal(legacyExtra)
+		Expect(err).NotTo(HaveOccurred())
+		legacyClass.Spec.ConfigSpec, err = json.Marshal(legacyConfig)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(client.Update(ctx, legacyClass)).To(Succeed())
 		checkpoint.ClassUID = string(legacyClass.UID)
 		Expect(checkpoint.ClassUID).NotTo(BeEmpty())
 
@@ -190,6 +207,13 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		vmRef := types.ManagedObjectReference{Type: "VirtualMachine", Value: checkpoint.VMVCenterMOID}
 		var vmMO mo.VirtualMachine
 		Expect(collector.RetrieveOne(ctx, vmRef, []string{"config"}, &vmMO)).To(Succeed())
+		Expect(vmMO.Config.ChangeTrackingEnabled).To(HaveValue(BeFalse()))
+		baselineExtra := map[string]interface{}{}
+		for _, entry := range vmMO.Config.ExtraConfig {
+			value := entry.GetOptionValue()
+			baselineExtra[value.Key] = value.Value
+		}
+		Expect(baselineExtra).To(HaveKeyWithValue("example.vmclass-upgrade", "preserved"))
 		checkpoint.RealizedCPU = vmMO.Config.Hardware.NumCPU
 		checkpoint.RealizedMemoryMB = vmMO.Config.Hardware.MemoryMB
 		Expect(checkpoint.RealizedCPU).To(BeEquivalentTo(checkpoint.CPU))
@@ -239,6 +263,10 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		class := &vmopv1.VirtualMachineClass{}
 		Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: checkpoint.ClassName}, class)).To(Succeed())
 		Expect(string(class.UID)).To(Equal(checkpoint.ClassUID))
+		Expect(class.Spec.Advanced).NotTo(BeNil())
+		Expect(class.Spec.Advanced.ChangeBlockTracking.Default).To(HaveValue(BeFalse()))
+		Expect(class.Spec.Advanced.ExtraConfig).NotTo(BeNil())
+		Expect((*class.Spec.Advanced.ExtraConfig.Default)[0].Key).To(Equal("example.vmclass-upgrade"))
 		Expect(class.Spec.Resources.Size.CPU).NotTo(BeNil())
 		Expect(class.Spec.Resources.Size.CPU.Default).To(Equal(resource.NewQuantity(int64(checkpoint.CPU), resource.DecimalSI)))
 		Expect(class.Spec.Resources.Size.Memory).NotTo(BeNil())
@@ -264,6 +292,13 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		vmRef := types.ManagedObjectReference{Type: "VirtualMachine", Value: checkpoint.VMVCenterMOID}
 		var vmMO mo.VirtualMachine
 		Expect(collector.RetrieveOne(ctx, vmRef, []string{"config"}, &vmMO)).To(Succeed())
+		Expect(vmMO.Config.ChangeTrackingEnabled).To(HaveValue(BeFalse()))
+		upgradeExtra := map[string]interface{}{}
+		for _, entry := range vmMO.Config.ExtraConfig {
+			value := entry.GetOptionValue()
+			upgradeExtra[value.Key] = value.Value
+		}
+		Expect(upgradeExtra).To(HaveKeyWithValue("example.vmclass-upgrade", "preserved"))
 		Expect(vmMO.Config.Hardware.NumCPU).To(Equal(checkpoint.RealizedCPU))
 		Expect(vmMO.Config.Hardware.MemoryMB).To(Equal(checkpoint.RealizedMemoryMB))
 
@@ -287,6 +322,15 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		postUpgradeVMRef := types.ManagedObjectReference{Type: "VirtualMachine", Value: postUpgradeVM.Status.UniqueID}
 		var postUpgradeVMO mo.VirtualMachine
 		Expect(collector.RetrieveOne(ctx, postUpgradeVMRef, []string{"config"}, &postUpgradeVMO)).To(Succeed())
+		Expect(postUpgradeVM.Spec.Advanced).NotTo(BeNil())
+		Expect(postUpgradeVM.Spec.Advanced.ChangeBlockTracking).To(HaveValue(BeFalse()))
+		Expect(postUpgradeVMO.Config.ChangeTrackingEnabled).To(HaveValue(BeFalse()))
+		postUpgradeExtra := map[string]interface{}{}
+		for _, entry := range postUpgradeVMO.Config.ExtraConfig {
+			value := entry.GetOptionValue()
+			postUpgradeExtra[value.Key] = value.Value
+		}
+		Expect(postUpgradeExtra).To(HaveKeyWithValue("example.vmclass-upgrade", "preserved"))
 		Expect(postUpgradeVMO.Config.Hardware.NumCPU).To(BeEquivalentTo(checkpoint.CPU))
 		Expect(postUpgradeVMO.Config.Hardware.MemoryMB).To(BeEquivalentTo(checkpoint.MemoryMB))
 

@@ -131,6 +131,10 @@ type VirtualMachineClassSpec struct {
 	// Resources describes guest size, reservations and limits.
 	Resources VirtualMachineClassResources `json:"resources,omitempty"`
 
+	// Advanced describes advanced VM configuration policies.
+	// +optional
+	Advanced *VirtualMachineClassAdvancedSpec `json:"advanced,omitempty"`
+
 	// +optional
 
 	// Description describes the configuration of the VirtualMachineClass which

@@ -148,3 +148,13 @@ Tracked in the provider's spec and listed in tasks.md as dependency tasks T910â€
 |---|---|---|
 | `*[]string` zone lists distinguish unset from `[]` | "No zones" and "all zones" must not collapse | A plain list: dropping `[]` would make a class available everywhere |
 | The VM reconciler writes VM spec (same-class resize, schema upgrade, class change re-default) | These values come from the class and must follow it; precedent `vm_schema_upgrade.go`. A separate spec patch with an optimistic lock, apart from the deferred status patch | Asking users to re-apply the class: drift between the class and its VMs, and no backfill on upgrade |
+
+### Advanced policy slice (vmop-4315)
+
+The advanced category builds on the shared compute policy and raw ConfigSpec helpers. It adds the VM-aligned boolean policies (including the existing 1 GB huge-page enable flag), physical NUMA set policy, and concrete ExtraConfig list policy with typed key matchers. All five older API conversions lift supported values from raw ConfigSpec and project defaults back while preserving unknown objects, unsupported ExtraConfig values, and per-field policy annotations.
+
+The shared admission class lookup dispatches advanced materialization once, under the Telco/classless capability. Create writes supplied defaults; permitted class/snapshot changes clear the handled advanced fields and apply the new defaults. Ordinary updates and class removal retain selections. Provider projection consumes typed defaults under the same feature gate; immutable class hashes include advanced policy metadata. Governance and hardware compatibility validation remain follow-up work.
+
+Validation includes all-version conversion coverage, admission lifecycle and independent-copy checks, structural CEL envtests, provider projection and feature-gate checks, instance rotation after a policy-only edit, and new-VM plus staged-upgrade E2E assertions. Live E2E execution remains deferred; compile verification is required before publication.
+
+Existing VM ExtraConfig key restrictions remain in force. Class ExtraConfig defaults retain system-reserved, guestinfo and NIC keys for provider projection and its existing sanitization, while admission materializes only keys legal in the VM's bag using the existing shared classifiers. This preserves class/provider behavior without creating a tenant validation bypass or duplicating key classification in the API module.

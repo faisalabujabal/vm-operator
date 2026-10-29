@@ -107,6 +107,32 @@ func intgTestsValidateCreate() {
 		Entry("should not work for invalid", false, invalidMemField.Error(), nil),
 	)
 
+	DescribeTable("advanced policy schema", validateSchema,
+		Entry("accepts a default from an approved NUMA set in a different order", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{2, 0}), Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{0, 2}}})}}
+		}, false),
+		Entry("rejects a NUMA default outside approved sets", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{1}), Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{0, 2}}})}}
+		}, true),
+		Entry("rejects required empty NUMA defaults", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{}), Required: ptr.To(true)}}
+		}, true),
+		Entry("accepts literal, glob, regex and wildcard matchers", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Allowed: ptr.To([]vmopv1.ExtraConfigMatcher{
+				{Key: &vmopv1.StringMatcher{Fixed: ptr.To("guestinfo.example")}},
+				{Key: &vmopv1.StringMatcher{Glob: ptr.To("guestinfo.*")}},
+				{Key: &vmopv1.StringMatcher{Regex: ptr.To("^guestinfo[.].*$")}},
+				{},
+			})}}
+		}, false),
+		Entry("rejects an empty string matcher", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Allowed: ptr.To([]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{}}})}}
+		}, true),
+		Entry("rejects ambiguous string matcher modes", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Denied: ptr.To([]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Fixed: ptr.To("key"), Glob: ptr.To("*")}}})}}
+		}, true),
+	)
+
 	DescribeTable("class policy schema", validateSchema,
 		Entry("accepts numeric and string quantities", func(class *vmopv1.VirtualMachineClass) {
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{

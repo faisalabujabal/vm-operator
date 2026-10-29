@@ -1,0 +1,280 @@
+// © Broadcom. All Rights Reserved.
+// The term "Broadcom" refers to Broadcom Inc. and/or its subsidiaries.
+// SPDX-License-Identifier: Apache-2.0
+
+package v1alpha6
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
+
+	vmopv1common "github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
+)
+
+func classAdvancedBoolFields(a *VirtualMachineClassAdvancedSpec) []struct {
+	key    string
+	policy **BoolPolicy
+} {
+	return []struct {
+		key    string
+		policy **BoolPolicy
+	}{
+		{"numa.vcpu.preferHT", &a.PreferHTEnabled},
+		{"sched.mem.lpage.enable1GPage", &a.HugePages1GEnabled},
+		{"timeTracker.lowLatency", &a.TimeTrackerLowLatencyEnabled},
+		{"sched.cpu.affinity.exclusiveNoStats", &a.CPUAffinityExclusiveNoStatsEnabled},
+		{"sched.swap.vmxSwapEnabled", &a.VMXSwapEnabled},
+	}
+}
+
+func promoteClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDocument) error {
+	spec.Advanced = nil
+	a := &VirtualMachineClassAdvancedSpec{}
+	var cbt bool
+	if ok, err := doc.Get("changeTrackingEnabled", &cbt); err != nil {
+		return err
+	} else if ok {
+		a.ChangeBlockTracking = FixedClassBool(cbt)
+		if err := doc.Delete("changeTrackingEnabled"); err != nil {
+			return err
+		}
+	}
+	var entries []json.RawMessage
+	if _, err := doc.Get("extraConfig", &entries); err != nil {
+		return err
+	}
+	counts := map[string]int{}
+	for _, raw := range entries {
+		var item struct {
+			Key string `json:"key"`
+		}
+		if json.Unmarshal(raw, &item) == nil {
+			counts[item.Key]++
+		}
+	}
+	var residual []json.RawMessage
+	var defaults []vmopv1common.KeyValuePair
+	for _, raw := range entries {
+		var item map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return fmt.Errorf("decode class ExtraConfig item: %w", err)
+		}
+		var key, value string
+		if json.Unmarshal(item["key"], &key) != nil || !decodeClassExtraConfigString(item["value"], &value) {
+			residual = append(residual, raw)
+			continue
+		}
+		supported := counts[key] == 1
+		if rawType, ok := item["_typeName"]; ok {
+			var name string
+			if json.Unmarshal(rawType, &name) != nil || name != "OptionValue" {
+				supported = false
+			}
+		}
+		for name := range item {
+			if name != "key" && name != "value" && name != "_typeName" {
+				supported = false
+			}
+		}
+		if !supported {
+			residual = append(residual, raw)
+			continue
+		}
+		promoted := false
+		for _, f := range classAdvancedBoolFields(a) {
+			if key != f.key {
+				continue
+			}
+			v, err := strconv.ParseBool(value)
+			if err == nil {
+				*f.policy = FixedClassBool(v)
+				promoted = true
+			}
+			supported = false
+			break
+		}
+		if key == "numa.nodeAffinity" {
+			members := []int32{}
+			valid := true
+			seen := map[int32]bool{}
+			if value != "" {
+				for _, part := range strings.Split(value, ",") {
+					n, err := strconv.ParseInt(strings.TrimSpace(part), 10, 32)
+					if err != nil || n < 0 {
+						valid = false
+						break
+					}
+					if seen[int32(n)] {
+						valid = false
+						break
+					}
+					members = append(members, int32(n))
+					seen[int32(n)] = true
+				}
+			}
+			if valid {
+				sets := []Int32Set{{Members: append([]int32{}, members...)}}
+				a.PNUMANodeAffinity = &Int32SetPolicy{Default: &members, Allowed: &sets}
+				promoted = true
+			}
+			supported = false
+		}
+		if promoted {
+			continue
+		}
+		if !supported {
+			residual = append(residual, raw)
+			continue
+		}
+		defaults = append(defaults, vmopv1common.KeyValuePair{Key: key, Value: value})
+	}
+	if len(defaults) > 0 {
+		a.ExtraConfig = &ExtraConfigListPolicy{Default: &defaults}
+	}
+	if len(residual) > 0 {
+		if err := doc.Set("extraConfig", residual); err != nil {
+			return err
+		}
+	} else if len(entries) > 0 {
+		if err := doc.Delete("extraConfig"); err != nil {
+			return err
+		}
+	}
+	if a.ChangeBlockTracking != nil || a.PNUMANodeAffinity != nil || a.ExtraConfig != nil {
+		spec.Advanced = a
+	}
+	for _, f := range classAdvancedBoolFields(a) {
+		if *f.policy != nil {
+			spec.Advanced = a
+			break
+		}
+	}
+	return nil
+}
+
+func projectClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDocument) error {
+	a := spec.Advanced
+	if a == nil {
+		return nil
+	}
+	if a.ChangeBlockTracking != nil && a.ChangeBlockTracking.Default != nil {
+		if err := doc.Set("changeTrackingEnabled", *a.ChangeBlockTracking.Default); err != nil {
+			return err
+		}
+	}
+	var entries []json.RawMessage
+	if _, err := doc.Get("extraConfig", &entries); err != nil {
+		return err
+	}
+	values := []vmopv1common.KeyValuePair{}
+	if a.ExtraConfig != nil && a.ExtraConfig.Default != nil {
+		values = append(values, (*a.ExtraConfig.Default)...)
+	}
+	for _, f := range classAdvancedBoolFields(a) {
+		if *f.policy != nil && (*f.policy).Default != nil {
+			values = append(values, vmopv1common.KeyValuePair{Key: f.key, Value: strings.ToUpper(strconv.FormatBool(*(*f.policy).Default))})
+		}
+	}
+	if a.PNUMANodeAffinity != nil && a.PNUMANodeAffinity.Default != nil {
+		parts := []string{}
+		for _, n := range *a.PNUMANodeAffinity.Default {
+			parts = append(parts, strconv.FormatInt(int64(n), 10))
+		}
+		values = append(values, vmopv1common.KeyValuePair{Key: "numa.nodeAffinity", Value: strings.Join(parts, ",")})
+	}
+
+	for _, value := range values {
+		var err error
+		entries, err = overlayClassExtraConfig(entries, value)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(entries) > 0 {
+		return doc.Set("extraConfig", entries)
+	}
+	return nil
+}
+
+func restoreClassAdvanced(dst, preserved, projected *VirtualMachineClassSpec) {
+	if preserved.Advanced == nil {
+		return
+	}
+	wasAbsent := dst.Advanced == nil
+	if dst.Advanced == nil {
+		dst.Advanced = &VirtualMachineClassAdvancedSpec{}
+	}
+	p := projected.Advanced
+	if p == nil {
+		p = &VirtualMachineClassAdvancedSpec{}
+	}
+	d, a := dst.Advanced, preserved.Advanced
+	restoreUnchangedClassPolicy(&d.ChangeBlockTracking, a.ChangeBlockTracking, p.ChangeBlockTracking)
+	ds, as, ps := classAdvancedBoolFields(d), classAdvancedBoolFields(a), classAdvancedBoolFields(p)
+	for i := range ds {
+		restoreUnchangedClassPolicy(ds[i].policy, *as[i].policy, *ps[i].policy)
+	}
+	restoreUnchangedClassPolicy(&d.PNUMANodeAffinity, a.PNUMANodeAffinity, p.PNUMANodeAffinity)
+	restoreUnchangedClassPolicy(&d.ExtraConfig, a.ExtraConfig, p.ExtraConfig)
+	if wasAbsent && apiequality.Semantic.DeepEqual(d, &VirtualMachineClassAdvancedSpec{}) && !apiequality.Semantic.DeepEqual(a, &VirtualMachineClassAdvancedSpec{}) {
+		dst.Advanced = nil
+	}
+}
+
+func decodeClassExtraConfigString(raw json.RawMessage, value *string) bool {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return false
+	}
+	if json.Unmarshal(raw, value) == nil {
+		return true
+	}
+	var typed map[string]json.RawMessage
+	if json.Unmarshal(raw, &typed) != nil || len(typed) != 2 {
+		return false
+	}
+	var name string
+	return json.Unmarshal(typed["_typeName"], &name) == nil && name == "string" && !bytes.Equal(bytes.TrimSpace(typed["_value"]), []byte("null")) && json.Unmarshal(typed["_value"], value) == nil
+}
+
+func overlayClassExtraConfig(entries []json.RawMessage, value vmopv1common.KeyValuePair) ([]json.RawMessage, error) {
+	result := make([]json.RawMessage, 0, len(entries)+1)
+	item := map[string]json.RawMessage{}
+	for _, raw := range entries {
+		var candidate map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &candidate); err != nil {
+			return nil, fmt.Errorf("decode class ExtraConfig item: %w", err)
+		}
+		var key string
+		if json.Unmarshal(candidate["key"], &key) == nil && key == value.Key {
+			for name, field := range candidate {
+				item[name] = field
+			}
+			continue
+		}
+		result = append(result, raw)
+	}
+	if _, ok := item["_typeName"]; !ok {
+		item["_typeName"] = json.RawMessage(`"OptionValue"`)
+	}
+	key, err := json.Marshal(value.Key)
+	if err != nil {
+		return nil, err
+	}
+	item["key"] = key
+	encodedValue, err := json.Marshal(map[string]string{"_typeName": "string", "_value": value.Value})
+	if err != nil {
+		return nil, err
+	}
+	item["value"] = encodedValue
+	raw, err := json.Marshal(item)
+	if err != nil {
+		return nil, err
+	}
+	return append(result, raw), nil
+}

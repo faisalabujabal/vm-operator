@@ -28,6 +28,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	vmopv1common "github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
 	imgregv1a1 "github.com/vmware-tanzu/vm-operator/external/image-registry-operator/api/v1alpha1"
 	vspherepolv1 "github.com/vmware-tanzu/vm-operator/external/vsphere-policy/api/v1alpha1"
 
@@ -184,12 +185,14 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 		Expect(hw.MemoryMB).To(BeEquivalentTo(classMemory / 1024 / 1024))
 	})
 
-	It("Should realize the v1alpha6 VMClass size defaults for a v1alpha6 VirtualMachine", Label("core-functional", "experimental"), func() {
+	It("Should realize the v1alpha6 VMClass size and advanced defaults for a v1alpha6 VirtualMachine", Label("core-functional", "experimental"), func() {
 		skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, clusterProxy, consts.TelcoVMServiceAPICapabilityName)
 
 		className := fmt.Sprintf("%s-class", vmName)
 		classCPU := resource.MustParse("2")
 		classMemory := resource.MustParse("2Gi")
+		disabled := false
+		extraDefaults := []vmopv1common.KeyValuePair{{Key: "example.vmclass-advanced", Value: "class-default"}}
 		vmClass := &vmopv1.VirtualMachineClass{
 			TypeMeta: metav1.TypeMeta{
 				APIVersion: vmopv1.GroupVersion.String(),
@@ -200,6 +203,15 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 				Name:      className,
 			},
 			Spec: vmopv1.VirtualMachineClassSpec{
+				Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
+					ChangeBlockTracking:                &vmopv1.BoolPolicy{Default: &disabled},
+					PreferHTEnabled:                    &vmopv1.BoolPolicy{Default: &disabled},
+					HugePages1GEnabled:                 &vmopv1.BoolPolicy{Default: &disabled},
+					TimeTrackerLowLatencyEnabled:       &vmopv1.BoolPolicy{Default: &disabled},
+					CPUAffinityExclusiveNoStatsEnabled: &vmopv1.BoolPolicy{Default: &disabled},
+					VMXSwapEnabled:                     &vmopv1.BoolPolicy{Default: &disabled},
+					ExtraConfig:                        &vmopv1.ExtraConfigListPolicy{Default: &extraDefaults},
+				},
 				Resources: vmopv1.VirtualMachineClassResources{
 					Size: vmopv1.VirtualMachineClassResourceSpec{
 						CPU:    &vmopv1.ResourceQuantityRange{Default: &classCPU},
@@ -241,6 +253,14 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 		createdVM := &vmopv1.VirtualMachine{}
 		Eventually(func(g Gomega) {
 			g.Expect(svClusterClient.Get(ctx, ctrlclient.ObjectKey{Namespace: input.WCPNamespaceName, Name: vmName}, createdVM)).To(Succeed())
+			g.Expect(createdVM.Spec.Advanced).NotTo(BeNil())
+			g.Expect(createdVM.Spec.Advanced.ChangeBlockTracking).To(HaveValue(BeFalse()))
+			g.Expect(createdVM.Spec.Advanced.PreferHTEnabled).To(HaveValue(BeFalse()))
+			g.Expect(createdVM.Spec.Advanced.HugePages1GEnabled).To(HaveValue(BeFalse()))
+			g.Expect(createdVM.Spec.Advanced.TimeTrackerLowLatencyEnabled).To(HaveValue(BeFalse()))
+			g.Expect(createdVM.Spec.Advanced.CPUAffinityExclusiveNoStatsEnabled).To(HaveValue(BeFalse()))
+			g.Expect(createdVM.Spec.Advanced.VMXSwapEnabled).To(HaveValue(BeFalse()))
+			g.Expect(createdVM.Spec.Advanced.ExtraConfig).To(Equal(extraDefaults))
 			g.Expect(createdVM.Spec.Resources).NotTo(BeNil())
 			g.Expect(createdVM.Spec.Resources.Size).NotTo(BeNil())
 			g.Expect(createdVM.Spec.Resources.Size.CPU).NotTo(BeNil())
@@ -251,6 +271,14 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 
 		var vmMO mo.VirtualMachine
 		Expect(propCollector.RetrieveOne(ctx, vmMoRef, []string{"config"}, &vmMO)).To(Succeed())
+		Expect(vmMO.Config.ChangeTrackingEnabled).To(HaveValue(BeFalse()))
+		actualExtra := map[string]interface{}{}
+		for _, entry := range vmMO.Config.ExtraConfig {
+			v := entry.GetOptionValue()
+			actualExtra[v.Key] = v.Value
+		}
+		Expect(actualExtra).To(HaveKeyWithValue("example.vmclass-advanced", "class-default"))
+		Expect(strings.EqualFold(fmt.Sprint(actualExtra["numa.vcpu.preferHT"]), "false")).To(BeTrue())
 		Expect(vmMO.Config.Hardware.NumCPU).To(BeEquivalentTo(classCPU.Value()))
 		Expect(vmMO.Config.Hardware.MemoryMB).To(BeEquivalentTo(classMemory.Value() / 1024 / 1024))
 	})

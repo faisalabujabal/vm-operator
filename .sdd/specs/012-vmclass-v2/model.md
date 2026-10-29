@@ -140,8 +140,8 @@ spec:
       memory: {min: 1Gi, max: 64Gi, default: 4Gi}
   advanced:
     extraConfig:
-      allowed: [{type: Glob, value: "guestinfo.*"}]
-      denied: [{type: Glob, value: "guestinfo.secret.*"}]
+      allowed: [{key: {glob: "guestinfo.*"}}]
+      denied: [{key: {glob: "guestinfo.secret.*"}}]
 ```
 
 A reserved GPU class:
@@ -159,3 +159,11 @@ spec:
   memoryAdvanced:
     reservationLockedToMax: {allowOverride: false, default: true}
 ```
+
+### Advanced field batch (vmop-4315)
+
+`advanced` contains `BoolPolicy` fields `changeBlockTracking`, `preferHtEnabled`, `hugePages1GEnabled`, `timeTrackerLowLatencyEnabled`, `cpuAffinityExclusiveNoStatsEnabled` and `vmxSwapEnabled`; `pnumaNodeAffinity` is an `Int32SetPolicy`; `extraConfig` is a concrete key/value list policy. `extraConfig.default` uses the VM's string key/value items, keyed by `key`; allowed/denied items contain an optional `key` string matcher with exactly one of `fixed`, `glob`, or `regex`. An omitted key matches any key. Governance enforcement remains separate.
+
+`hugePages1GEnabled` is the existing VM's boolean enable flag for 1 GB memory backing (`sched.mem.lpage.enable1GPage`). It does not select page sizes. The environment-browser schemas expose no page-size choice, so the ambiguous full-schema `hugePages` shorthand is represented by the existing VM field and `BoolPolicy`.
+
+Conversion lifts `changeTrackingEnabled` and supported VMX string values from `configSpec`, leaving unknown JSON and non-string ExtraConfig values in the residual document. A converted legacy boolean is fixed; a NUMA set becomes its default and one approved set. Round-trip annotations preserve policy metadata and each older API edit takes precedence for the corresponding field.

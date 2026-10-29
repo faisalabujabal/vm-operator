@@ -516,6 +516,228 @@ spec:
               VirtualMachineClassInstanceSpec defines the desired state of VirtualMachineClassInstance.
               It is a composite of VirtualMachineClassSpec.
             properties:
+              advanced:
+                description: Advanced describes advanced VM configuration policies.
+                properties:
+                  changeBlockTracking:
+                    description: ChangeBlockTracking enables incremental backup support.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  cpuAffinityExclusiveNoStatsEnabled:
+                    description: CPUAffinityExclusiveNoStatsEnabled disables per-VM
+                      CPU accounting.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  extraConfig:
+                    description: ExtraConfig describes VMX properties without a typed
+                      policy.
+                    properties:
+                      allowed:
+                        description: Allowed contains permitted key matchers. Omission
+                          leaves the list open.
+                        items:
+                          description: ExtraConfigMatcher matches an ExtraConfig item's
+                            key. Omission matches any key.
+                          properties:
+                            key:
+                              description: Key matches the item's key.
+                              properties:
+                                fixed:
+                                  description: Fixed matches a literal string.
+                                  type: string
+                                glob:
+                                  description: Glob matches a shell-style glob pattern.
+                                  type: string
+                                regex:
+                                  description: Regex matches a regular expression.
+                                  type: string
+                              type: object
+                              x-kubernetes-validations:
+                              - message: exactly one of fixed, glob or regex must
+                                  be set
+                                rule: '(has(self.fixed) ? 1 : 0) + (has(self.glob)
+                                  ? 1 : 0) + (has(self.regex) ? 1 : 0) == 1'
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      default:
+                        description: Default is materialized on the VM at admission.
+                        items:
+                          description: |-
+                            KeyValuePair is useful when wanting to realize a map as a list of key/value
+                            pairs.
+                          properties:
+                            key:
+                              description: Key is the key part of the key/value pair.
+                              type: string
+                            value:
+                              description: Value is the optional value part of the
+                                key/value pair.
+                              type: string
+                          required:
+                          - key
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - key
+                        x-kubernetes-list-type: map
+                      denied:
+                        description: Denied contains prohibited key matchers.
+                        items:
+                          description: ExtraConfigMatcher matches an ExtraConfig item's
+                            key. Omission matches any key.
+                          properties:
+                            key:
+                              description: Key matches the item's key.
+                              properties:
+                                fixed:
+                                  description: Fixed matches a literal string.
+                                  type: string
+                                glob:
+                                  description: Glob matches a shell-style glob pattern.
+                                  type: string
+                                regex:
+                                  description: Regex matches a regular expression.
+                                  type: string
+                              type: object
+                              x-kubernetes-validations:
+                              - message: exactly one of fixed, glob or regex must
+                                  be set
+                                rule: '(has(self.fixed) ? 1 : 0) + (has(self.glob)
+                                  ? 1 : 0) + (has(self.regex) ? 1 : 0) == 1'
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                  hugePages1GEnabled:
+                    description: HugePages1GEnabled enables 1 GB huge-page memory
+                      backing.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  pnumaNodeAffinity:
+                    description: PNUMANodeAffinity pins the VM to physical NUMA node
+                      IDs.
+                    properties:
+                      allowed:
+                        description: Allowed contains approved sets. Omission permits
+                          any valid set.
+                        items:
+                          description: Int32Set contains one approved set of integer
+                            members.
+                          properties:
+                            members:
+                              description: Members describes the set, with ordering
+                                ignored.
+                              items:
+                                format: int32
+                                type: integer
+                              type: array
+                              x-kubernetes-list-type: set
+                              x-kubernetes-validations:
+                              - message: NUMA node IDs must be nonnegative
+                                rule: self.all(n, n >= 0)
+                          required:
+                          - members
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      default:
+                        description: Default is the set materialized on the VM.
+                        items:
+                          format: int32
+                          type: integer
+                        type: array
+                        x-kubernetes-list-type: set
+                      required:
+                        description: Required rejects an empty set when true.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: NUMA node IDs must be nonnegative
+                      rule: '!has(self.default) || self.default.all(n, n >= 0)'
+                    - message: a required set cannot have an empty default
+                      rule: '!has(self.required) || !self.required || !has(self.default)
+                        || size(self.default) > 0'
+                    - message: default must be an allowed set
+                      rule: '!has(self.default) || !has(self.allowed) || self.allowed.exists(s,
+                        size(s.members) == size(self.default) && s.members.all(n,
+                        n in self.default))'
+                  preferHtEnabled:
+                    description: PreferHTEnabled prefers hyperthreads of the same
+                      physical core.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  timeTrackerLowLatencyEnabled:
+                    description: TimeTrackerLowLatencyEnabled enables low-latency
+                      time tracking.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  vmxSwapEnabled:
+                    description: VMXSwapEnabled permits swapping the VMX process's
+                      memory.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                type: object
               configSpec:
                 description: |-
                   ConfigSpec describes additional configuration information for a

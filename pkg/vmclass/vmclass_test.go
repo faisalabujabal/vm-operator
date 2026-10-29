@@ -172,13 +172,19 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 var _ = Describe("Class boot defaults", Label(testlabels.Mutation, testlabels.API), func() {
 	It("maps class booleans and milliseconds without changing VM-only boot choices", func() {
 		vm := &vmopv1.VirtualMachine{}
-		vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{Firmware: vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI}
+		vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{
+			Firmware:            vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI,
+			NetworkBootProtocol: vmopv1.VirtualMachineBootOptionsNetworkBootProtocolIP6,
+			BootOrder:           []vmopv1.VirtualMachineBootOptionsBootableDevice{{Type: vmopv1.VirtualMachineBootOptionsBootableCDRomDevice}},
+		}
 		defaults := vmopv1.VirtualMachineClassSpec{BootOptions: &vmopv1.VirtualMachineClassBootOptions{
 			EFISecureBoot: vmopv1.FixedClassBool(false), BootRetry: vmopv1.FixedClassBool(true),
 			BootDelay: vmopv1.FixedClassLong(0), BootRetryDelay: vmopv1.FixedClassLong(1500),
 		}}
 		Expect(applyTestBootDefaults(vm, defaults, false)).To(BeTrue())
 		Expect(vm.Spec.BootOptions.Firmware).To(Equal(vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI))
+		Expect(vm.Spec.BootOptions.NetworkBootProtocol).To(Equal(vmopv1.VirtualMachineBootOptionsNetworkBootProtocolIP6))
+		Expect(vm.Spec.BootOptions.BootOrder).To(Equal([]vmopv1.VirtualMachineBootOptionsBootableDevice{{Type: vmopv1.VirtualMachineBootOptionsBootableCDRomDevice}}))
 		Expect(vm.Spec.BootOptions.EFISecureBoot).To(Equal(vmopv1.VirtualMachineBootOptionsEFISecureBootDisabled))
 		Expect(vm.Spec.BootOptions.BootRetry).To(Equal(vmopv1.VirtualMachineBootOptionsBootRetryEnabled))
 		Expect(vm.Spec.BootOptions.BootDelay.Duration).To(BeZero())

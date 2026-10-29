@@ -128,6 +128,8 @@ v1alpha6 VMClass resource defaults, the identity, materialized spec,
 and vSphere compute settings of the existing powered-on VM against its saved
 baseline, and a new v1alpha6 VM created from the upgraded legacy class.
 
+The compute batch also verifies two cores per socket and explicit disabled CPU hot-add, CPU hot-remove and memory hot-add presets. Prepare supplies these through the legacy raw ConfigSpec and checks their realized values before the upgrade; verify checks the promoted class policies, unchanged existing VM configuration, and both admission defaults and realized configuration on a new VM. The new typed-class case supplies a conflicting tenant hot-remove value and checks that admission replaces it. These cases avoid host-specific CPU feature prerequisites; broader boolean combinations, conversion edge cases and powered-on update restrictions are covered by unit and integration tests.
+
 Precompiled `./e2e-tests`: pass `-e2e.*` and `--ginkgo.*` in one contiguous argument list (as `make test-e2e-prebuilt` does). Do **not** put `--` between them; otherwise `--ginkgo.focus`, `--ginkgo.label-filter`, etc. are ignored and nearly all specs still run.
 
 **Skip specific tests**:

@@ -256,7 +256,6 @@ func reconcileStatusHardware(
 			cpuStatus.PerformanceCountersEnabled = config.VPMCEnabled
 
 			if n := config.NumaInfo; n != nil {
-				cpuStatus.ExposeVNUMAOnCPUHotAdd = n.VnumaOnCpuHotaddExposed
 				cpuStatus.VNUMA = &vmopv1.VirtualMachineVNUMATopologyStatus{
 					CoresPerNumaNode:     n.CoresPerNumaNode,
 					AutoCoresPerNumaNode: n.AutoCoresPerNumaNode,

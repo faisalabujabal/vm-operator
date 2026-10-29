@@ -1197,11 +1197,6 @@ func (in *VirtualMachineCPUAdvancedSpec) DeepCopyInto(out *VirtualMachineCPUAdva
 		*out = new(bool)
 		**out = **in
 	}
-	if in.ExposeVNUMAOnCPUHotAdd != nil {
-		in, out := &in.ExposeVNUMAOnCPUHotAdd, &out.ExposeVNUMAOnCPUHotAdd
-		*out = new(bool)
-		**out = **in
-	}
 	if in.IOMMUEnabled != nil {
 		in, out := &in.IOMMUEnabled, &out.IOMMUEnabled
 		*out = new(bool)
@@ -1254,11 +1249,6 @@ func (in *VirtualMachineCPUAllocationStatus) DeepCopyInto(out *VirtualMachineCPU
 	}
 	if in.HotRemoveEnabled != nil {
 		in, out := &in.HotRemoveEnabled, &out.HotRemoveEnabled
-		*out = new(bool)
-		**out = **in
-	}
-	if in.ExposeVNUMAOnCPUHotAdd != nil {
-		in, out := &in.ExposeVNUMAOnCPUHotAdd, &out.ExposeVNUMAOnCPUHotAdd
 		*out = new(bool)
 		**out = **in
 	}
@@ -1452,11 +1442,6 @@ func (in *VirtualMachineClassCPUAdvancedSpec) DeepCopyInto(out *VirtualMachineCl
 	}
 	if in.PerformanceCountersEnabled != nil {
 		in, out := &in.PerformanceCountersEnabled, &out.PerformanceCountersEnabled
-		*out = new(BoolPolicy)
-		(*in).DeepCopyInto(*out)
-	}
-	if in.ExposeVNUMAOnCPUHotAdd != nil {
-		in, out := &in.ExposeVNUMAOnCPUHotAdd, &out.ExposeVNUMAOnCPUHotAdd
 		*out = new(BoolPolicy)
 		(*in).DeepCopyInto(*out)
 	}

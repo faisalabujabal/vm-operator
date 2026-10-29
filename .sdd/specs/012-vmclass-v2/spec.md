@@ -263,3 +263,7 @@ vm-operator runs on a Supervisor whose provider supplies the pieces below. vm-op
 - [ ] Hardware compatibility is asynchronous and never rejects a class (US7).
 - [ ] Visibility limits are specified (US7.4, US7.5).
 - [ ] Every open question is mirrored as a blocked task in `tasks.md`.
+
+### Approved CPU/memory incremental deferral
+
+Typed `cpuAdvanced.exposeVnumaOnCpuHotadd` is deferred until after the current PR set (T103p). A request to consider vNUMA exposure during CPU hot-add is not proven equivalent to the effective observed `NumaInfo.VnumaOnCpuHotaddExposed` state. Verify a supported source of configured intent, prerequisites and stable reconciliation before adding class/VM fields and their lifecycle coverage. Existing raw `configSpec.virtualNuma.exposeVnumaOnCpuHotadd` support remains unchanged.

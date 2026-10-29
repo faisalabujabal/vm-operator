@@ -71,7 +71,6 @@ func computeFields(hwVer vimtypes.HardwareVersion) []computeFieldDef {
 		vnumaNodeCountField(),
 		cpuHotAddFlagField(),
 		cpuHotRemoveFlagField(),
-		exposeVNUMAOnCPUHotAddField(),
 		iommuField(),
 		nestedHVField(),
 		perfCountersField(),
@@ -533,28 +532,6 @@ func cpuHotRemoveFlagField() computeFieldDef {
 		},
 		apply: func(vm vmopv1.VirtualMachine, _ vimtypes.VirtualMachineConfigInfo, cs *vimtypes.VirtualMachineConfigSpec) {
 			cs.CpuHotRemoveEnabled = ptr.To(vm.Spec.CPUAdvanced != nil && ptr.DerefWithDefault(vm.Spec.CPUAdvanced.HotRemoveEnabled, false))
-		},
-	}
-}
-
-func exposeVNUMAOnCPUHotAddField() computeFieldDef {
-	return computeFieldDef{
-		fieldName:    "cpuAdvanced.exposeVnumaOnCpuHotadd",
-		minHWVer:     vimtypes.VMX20,
-		hotPluggable: neverHotPluggable,
-		differs: func(vm vmopv1.VirtualMachine, ci vimtypes.VirtualMachineConfigInfo, cs *vimtypes.VirtualMachineConfigSpec) bool {
-			if vm.Spec.CPUAdvanced == nil || vm.Spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd == nil {
-				return false
-			}
-			desired := vm.Spec.CPUAdvanced != nil && ptr.DerefWithDefault(vm.Spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd, false)
-			live := ci.NumaInfo != nil && ptr.DerefWithDefault(ci.NumaInfo.VnumaOnCpuHotaddExposed, false)
-			return desired != live || (cs.VirtualNuma != nil && cs.VirtualNuma.ExposeVnumaOnCpuHotadd != nil && desired != *cs.VirtualNuma.ExposeVnumaOnCpuHotadd)
-		},
-		apply: func(vm vmopv1.VirtualMachine, _ vimtypes.VirtualMachineConfigInfo, cs *vimtypes.VirtualMachineConfigSpec) {
-			if cs.VirtualNuma == nil {
-				cs.VirtualNuma = &vimtypes.VirtualMachineVirtualNuma{}
-			}
-			cs.VirtualNuma.ExposeVnumaOnCpuHotadd = ptr.To(vm.Spec.CPUAdvanced != nil && ptr.DerefWithDefault(vm.Spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd, false))
 		},
 	}
 }

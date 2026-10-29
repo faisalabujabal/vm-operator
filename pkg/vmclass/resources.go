@@ -21,10 +21,10 @@ type ResourceDefaultsProvider interface {
 	GetVirtualMachineClassResources(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error)
 }
 
-// ApplyResourceDefaults materializes class resources on creation or a class
+// ApplyDefaults materializes class settings on creation or a class
 // change. Ordinary updates preserve the VM's selected configuration, even if
 // its class has since been edited. Removing the class also retains its values.
-func ApplyResourceDefaults(
+func ApplyDefaults(
 	ctx context.Context,
 	c ctrlclient.Client,
 	provider ResourceDefaultsProvider,
@@ -75,9 +75,8 @@ func ApplyResourceDefaults(
 	if err != nil {
 		return false, fmt.Errorf("resolve resources for class %s: %w", vm.Spec.ClassName, err)
 	}
-	if apiequality.Semantic.DeepEqual(vm.Spec.Resources, resources) {
-		return false, nil
-	}
+	before := vm.Spec.DeepCopy()
 	vm.Spec.Resources = resources.DeepCopy()
-	return true, nil
+	applyComputeDefaults(vm, &spec, oldVM != nil)
+	return !apiequality.Semantic.DeepEqual(*before, vm.Spec), nil
 }

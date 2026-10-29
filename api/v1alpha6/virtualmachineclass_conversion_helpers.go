@@ -139,6 +139,7 @@ func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
 		restoreUnchangedClassPolicy(&group.dst.CPU, group.preserved.CPU, group.projected.CPU)
 		restoreUnchangedClassPolicy(&group.dst.Memory, group.preserved.Memory, group.projected.Memory)
 	}
+	restoreClassCompute(dst, preserved, projected)
 	restoreUnchangedClassPolicy(&dst.ConfigSpec, preserved.ConfigSpec, projected.ConfigSpec)
 	restoreUnchangedClassPolicy(&dst.ReservedProfileName, preserved.ReservedProfileName, projected.ReservedProfileName)
 }

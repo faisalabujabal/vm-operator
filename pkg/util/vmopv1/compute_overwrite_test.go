@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	pkgconst "github.com/vmware-tanzu/vm-operator/pkg/constants"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 )
@@ -1693,3 +1694,29 @@ func resourceMHz(mhz int64) *resource.Quantity {
 	q := resource.NewQuantity(mhz, resource.DecimalSI)
 	return q
 }
+
+var _ = Describe("New CPU capability flags", Label("api"), func() {
+	It("preserves legacy configured flags on an already-upgraded VM when new spec fields are omitted", func() {
+		vm := vmopv1.VirtualMachine{}
+		vm.Annotations = map[string]string{pkgconst.UpgradedToFeatureVersionAnnotationKey: vmopv1util.FeatureVersionTelcoVMServiceAPI.String()}
+		ci := vimtypes.VirtualMachineConfigInfo{Version: vimtypes.VMX20.String(), CpuHotRemoveEnabled: ptr.To(true), NumaInfo: &vimtypes.VirtualMachineVirtualNumaInfo{VnumaOnCpuHotaddExposed: ptr.To(true)}}
+		var cs vimtypes.VirtualMachineConfigSpec
+		vmopv1util.OverwriteSpecComputeConfig(vm, ci, false, &cs)
+		Expect(cs.CpuHotRemoveEnabled).To(BeNil())
+		if cs.VirtualNuma != nil {
+			Expect(cs.VirtualNuma.ExposeVnumaOnCpuHotadd).To(BeNil())
+		}
+	})
+	It("stages enabled flags while powered off and reports the powered-on lock", func() {
+		vm := vmopv1.VirtualMachine{Spec: vmopv1.VirtualMachineSpec{CPUAdvanced: &vmopv1.VirtualMachineCPUAdvancedSpec{HotRemoveEnabled: ptr.To(true), ExposeVNUMAOnCPUHotAdd: ptr.To(true)}}}
+		ci := vimtypes.VirtualMachineConfigInfo{Version: vimtypes.VMX20.String()}
+		var cs vimtypes.VirtualMachineConfigSpec
+		_, locked := vmopv1util.OverwriteSpecComputeConfig(vm, ci, true, &cs)
+		Expect(locked).To(ContainElements("cpuAdvanced.hotRemoveEnabled", "cpuAdvanced.exposeVnumaOnCpuHotadd"))
+		Expect(cs.CpuHotRemoveEnabled).To(BeNil())
+		_, locked = vmopv1util.OverwriteSpecComputeConfig(vm, ci, false, &cs)
+		Expect(locked).To(BeEmpty())
+		Expect(cs.CpuHotRemoveEnabled).To(Equal(ptr.To(true)))
+		Expect(cs.VirtualNuma.ExposeVnumaOnCpuHotadd).To(Equal(ptr.To(true)))
+	})
+})

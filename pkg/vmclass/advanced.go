@@ -24,12 +24,12 @@ func applyAdvancedDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachin
 	if a == nil {
 		a = &vmopv1.VirtualMachineClassAdvancedSpec{}
 	}
-	applyAdvancedBoolDefault(&d.ChangeBlockTracking, a.ChangeBlockTracking, reset)
-	applyAdvancedBoolDefault(&d.PreferHTEnabled, a.PreferHTEnabled, reset)
-	applyAdvancedBoolDefault(&d.HugePages1GEnabled, a.HugePages1GEnabled, reset)
-	applyAdvancedBoolDefault(&d.TimeTrackerLowLatencyEnabled, a.TimeTrackerLowLatencyEnabled, reset)
-	applyAdvancedBoolDefault(&d.CPUAffinityExclusiveNoStatsEnabled, a.CPUAffinityExclusiveNoStatsEnabled, reset)
-	applyAdvancedBoolDefault(&d.VMXSwapEnabled, a.VMXSwapEnabled, reset)
+	applyBoolDefault(&d.ChangeBlockTracking, a.ChangeBlockTracking, reset)
+	applyBoolDefault(&d.PreferHTEnabled, a.PreferHTEnabled, reset)
+	applyBoolDefault(&d.HugePages1GEnabled, a.HugePages1GEnabled, reset)
+	applyBoolDefault(&d.TimeTrackerLowLatencyEnabled, a.TimeTrackerLowLatencyEnabled, reset)
+	applyBoolDefault(&d.CPUAffinityExclusiveNoStatsEnabled, a.CPUAffinityExclusiveNoStatsEnabled, reset)
+	applyBoolDefault(&d.VMXSwapEnabled, a.VMXSwapEnabled, reset)
 	if reset {
 		d.PNUMANodeAffinity = nil
 	}
@@ -77,10 +77,4 @@ func ValidateAdvancedPolicies(spec *vmopv1.VirtualMachineClassSpec) field.ErrorL
 		}
 	}
 	return append(errors, field.Invalid(field.NewPath("spec", "advanced", "pnumaNodeAffinity", "default"), *policy.Default, "default must be an allowed set"))
-}
-
-func applyAdvancedBoolDefault(dst **bool, policy *vmopv1.BoolPolicy, reset bool) {
-	if reset || (policy != nil && policy.Default != nil) {
-		*dst = vmopv1.ClassBoolDefault(policy)
-	}
 }

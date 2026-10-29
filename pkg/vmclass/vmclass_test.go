@@ -97,6 +97,15 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 		Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class)).To(Succeed())
 		Expect(class.Spec).To(Equal(original.Spec))
 	})
+	It("re-defaults a newly omitted hot-remove flag on a permitted class change", func() {
+		oldVM := vm.DeepCopy()
+		oldVM.Spec.ClassName = "previous"
+		value := true
+		vm.Spec.CPUAdvanced = &vmopv1.VirtualMachineCPUAdvancedSpec{HotRemoveEnabled: &value}
+		_, err := vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vm.Spec.CPUAdvanced.HotRemoveEnabled).To(HaveValue(BeFalse()))
+	})
 	It("clears allocations from the previous class on a class change", func() {
 		oldVM := vm.DeepCopy()
 		oldVM.Spec.ClassName = "guaranteed"

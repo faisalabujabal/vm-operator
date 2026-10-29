@@ -272,6 +272,17 @@ func backfillCPUFlags(
 		}
 	}
 
+	if ci.CpuHotRemoveEnabled != nil && *ci.CpuHotRemoveEnabled && (vm.Spec.CPUAdvanced == nil || vm.Spec.CPUAdvanced.HotRemoveEnabled == nil) {
+		initCPUAdvanced(vm)
+		vm.Spec.CPUAdvanced.HotRemoveEnabled = ptr.To(true)
+		mutated = true
+	}
+	if ci.NumaInfo != nil && ci.NumaInfo.VnumaOnCpuHotaddExposed != nil && *ci.NumaInfo.VnumaOnCpuHotaddExposed && (vm.Spec.CPUAdvanced == nil || vm.Spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd == nil) {
+		initCPUAdvanced(vm)
+		vm.Spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd = ptr.To(true)
+		mutated = true
+	}
+
 	return mutated
 }
 

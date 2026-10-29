@@ -250,11 +250,13 @@ func reconcileStatusHardware(
 			}
 
 			cpuStatus.HotAddEnabled = config.CpuHotAddEnabled
+			cpuStatus.HotRemoveEnabled = config.CpuHotRemoveEnabled
 			cpuStatus.IOMMUEnabled = config.Flags.VvtdEnabled
 			cpuStatus.NestedHardwareVirtualizationEnabled = config.NestedHVEnabled
 			cpuStatus.PerformanceCountersEnabled = config.VPMCEnabled
 
 			if n := config.NumaInfo; n != nil {
+				cpuStatus.ExposeVNUMAOnCPUHotAdd = n.VnumaOnCpuHotaddExposed
 				cpuStatus.VNUMA = &vmopv1.VirtualMachineVNUMATopologyStatus{
 					CoresPerNumaNode:     n.CoresPerNumaNode,
 					AutoCoresPerNumaNode: n.AutoCoresPerNumaNode,

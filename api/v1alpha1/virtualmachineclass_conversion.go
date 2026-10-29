@@ -61,7 +61,11 @@ func Convert_v1alpha1_VirtualMachineClassSpec_To_v1alpha6_VirtualMachineClassSpe
 		return err
 	}
 	out.Resources.Size = vmopv1.FixedClassResourcePair(*resource.NewQuantity(in.Hardware.Cpus, resource.DecimalSI), in.Hardware.Memory)
-	return Convert_v1alpha1_VirtualMachineClassResources_To_v1alpha6_VirtualMachineClassResources(&in.Policies.Resources, &out.Resources, s)
+	out.ReservedProfileName = vmopv1.FixedClassProfile(in.ReservedProfileID)
+	if err := Convert_v1alpha1_VirtualMachineClassResources_To_v1alpha6_VirtualMachineClassResources(&in.Policies.Resources, &out.Resources, s); err != nil {
+		return err
+	}
+	return vmopv1.PromoteClassConfigSpec(out)
 }
 
 // Convert_v1alpha6_VirtualMachineClassSpec_To_v1alpha1_VirtualMachineClassSpec projects class defaults into legacy fields.
@@ -72,7 +76,13 @@ func Convert_v1alpha6_VirtualMachineClassSpec_To_v1alpha1_VirtualMachineClassSpe
 	cpu, memory := vmopv1.ClassResourcePairDefaults(in.Resources.Size)
 	out.Hardware.Cpus = cpu.Value()
 	out.Hardware.Memory = memory
-	return Convert_v1alpha6_VirtualMachineClassResources_To_v1alpha1_VirtualMachineClassResources(&in.Resources, &out.Policies.Resources, s)
+	out.ReservedProfileID = vmopv1.ClassProfileDefault(in.ReservedProfileName)
+	if err := Convert_v1alpha6_VirtualMachineClassResources_To_v1alpha1_VirtualMachineClassResources(&in.Resources, &out.Policies.Resources, s); err != nil {
+		return err
+	}
+	var err error
+	out.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(in)
+	return err
 }
 
 // Convert_v1alpha1_VirtualMachineClassHardware_To_v1alpha6_VirtualMachineClassHardware converts hardware presets; resources are moved by the spec conversion.

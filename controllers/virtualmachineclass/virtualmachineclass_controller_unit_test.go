@@ -19,6 +19,7 @@ import (
 	pkgconst "github.com/vmware-tanzu/vm-operator/pkg/constants"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
+	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	"github.com/vmware-tanzu/vm-operator/test/builder"
 )
 
@@ -51,7 +52,7 @@ func unitTestsReconcile() {
 				Annotations: make(map[string]string),
 			},
 			Spec: vmopv1.VirtualMachineClassSpec{
-				ReservedProfileID: "dummy-profile",
+				ReservedProfileName: &vmopv1.EnumPolicy{Default: ptr.To("dummy-profile")},
 			},
 		}
 		setConfigSpec(vmClass)

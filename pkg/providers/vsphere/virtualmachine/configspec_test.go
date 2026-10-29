@@ -489,20 +489,50 @@ var _ = Describe("CreateConfigSpec", func() {
 			})
 		})
 
+		When("only raw ConfigSpec supplies a reserved profile", func() {
+			BeforeEach(func() {
+				vmClassSpec.ReservedProfileName = nil
+				classConfigSpec.ExtraConfig = []vimtypes.BaseOptionValue{
+					&vimtypes.OptionValue{Key: constants.ExtraConfigReservedProfileID, Value: "legacy-raw-profile"},
+				}
+			})
+
+			It("preserves the legacy reservation", func() {
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(constants.ExtraConfigReservedProfileID)
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(Equal("legacy-raw-profile"))
+			})
+		})
+
 		When("VM Class has reserved profile ID", func() {
 			BeforeEach(func() {
-				vmClassSpec.ReservedProfileID = "my-profile-id"
+				vmClassSpec.ReservedProfileName = &vmopv1.EnumPolicy{Default: ptr.To("my-profile-id")}
 			})
 			Specify("configSpec should have the expected ExtraConfig value", func() {
-				profileID, _ := object.OptionValueList(
-					configSpec.ExtraConfig).GetString(
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(
 					constants.ExtraConfigReservedProfileID)
-				Expect(profileID).To(Equal(vmClassSpec.ReservedProfileID))
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(BeAssignableToTypeOf(""))
+				Expect(profileID).To(Equal(*vmClassSpec.ReservedProfileName.Default))
 
 				namespacedName, _ := object.OptionValueList(
 					configSpec.ExtraConfig).GetString(
 					constants.ExtraConfigVMServiceNamespacedName)
 				Expect(namespacedName).To(Equal(vm.NamespacedName()))
+			})
+		})
+
+		When("VM Class allows one reserved profile without an explicit default", func() {
+			BeforeEach(func() {
+				allowed := []string{"only-profile"}
+				vmClassSpec.ReservedProfileName = &vmopv1.EnumPolicy{Allowed: &allowed}
+			})
+			It("uses the sole allowed profile as a string value", func() {
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(
+					constants.ExtraConfigReservedProfileID)
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(BeAssignableToTypeOf(""))
+				Expect(profileID).To(Equal("only-profile"))
 			})
 		})
 
@@ -3058,5 +3088,22 @@ var _ = Describe("Class boot policy configuration", func() {
 		Expect(got.BootOptions.BootRetryEnabled).To(Equal(ptr.To(true)))
 		Expect(got.BootOptions.EfiSecureBootEnabled).To(Equal(ptr.To(false)))
 		Expect(got.BootOptions.EnterBIOSSetup).To(Equal(ptr.To(true)))
+	})
+})
+
+var _ = Describe("Class boot and legacy device projection", func() {
+	It("keeps standalone typed devices when boot policies synthesize ConfigSpec", func() {
+		class := vmopv1.VirtualMachineClassSpec{
+			BootOptions: &vmopv1.VirtualMachineClassBootOptions{BootDelay: vmopv1.FixedClassLong(1000)},
+			Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{
+				VGPUDevices: []vmopv1.VGPUDevice{{ProfileName: "existing-profile"}},
+			}},
+		}
+		got, err := virtualmachine.ClassConfigSpecFromClassSpec(pkgcfg.NewContextWithDefaultConfig(), &class)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.BootOptions.BootDelay).To(Equal(int64(1000)))
+		Expect(got.DeviceChange).To(HaveLen(1))
+		device := got.DeviceChange[0].GetVirtualDeviceConfigSpec().Device.(*vimtypes.VirtualPCIPassthrough)
+		Expect(device.Backing.(*vimtypes.VirtualPCIPassthroughVmiopBackingInfo).Vgpu).To(Equal("existing-profile"))
 	})
 })

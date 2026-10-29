@@ -53,6 +53,10 @@ Device items: independent count bounds and required entries are deferred. A devi
 | `parentClassRefs` | list of `{name}` | Milestone 2. Rejected in Milestone 1. One entry; same namespace. |
 | `resources.size.{cpu,memory}` | Number | CPU in vCPUs. |
 | `resources.{requests,limits}.{cpu,memory}` | Number | CPU in vCPUs. The incremental migration retains the existing Supervisor-wide minimum host frequency for conversion to VM MHz. Cluster-specific conversion remains an open question and must not change the vCPU definition implicitly. |
+| `cpuAdvanced.topology.{coresPerSocket,vnumaNodeCount}` | `IntRange` | Preserve the existing VM topology path. vNUMA node count projects to `VirtualNuma.CoresPerNumaNode` using the effective CPU size; zero selects automatic sizing. |
+| `cpuAdvanced.{hotAddEnabled,hotRemoveEnabled,iommuEnabled,nestedHardwareVirtualizationEnabled,performanceCountersEnabled,exposeVnumaOnCpuHotadd}` | `BoolPolicy` | Includes the two missing VM boolean counterparts. CPU count decreases still require power-off. |
+| `cpuAdvanced.latencySensitivity` | `EnumPolicy` | Existing VM values `Normal`, `High`, `HighWithHyperthreading`; unsupported legacy levels stay in residual `configSpec`. |
+| `memoryAdvanced.{hotAddEnabled,reservationLockedToMax}` | `BoolPolicy` | Same VM paths. |
 | `cpuAdvanced.*`, `memoryAdvanced.*`, `bootOptions.*`, `advanced.*` | per field | Same paths as `VirtualMachine.spec`. |
 | `advanced.extraConfig` | `ListPolicy` | At the VM's path. |
 | `hardware.devices.{vgpuDevices,dynamicDirectPathIODevices}` | `ListPolicy` of device items | See "Value shapes". |
@@ -159,3 +163,5 @@ spec:
   memoryAdvanced:
     reservationLockedToMax: {allowOverride: false, default: true}
 ```
+
+CPU/memory deferrals: `cpuAdvanced.numaFixedAutoAffinityEnabled` and `cpuAdvanced.reservationLockedToMax` require a verified supported wire mapping before class/VM fields, reconciliation and tests can ship. The pinned govmomi model exposes neither advertised property. The proposed `cpuAdvanced.vnuma` container is omitted: pinned `VirtualMachineVirtualNuma` has only `coresPerNumaNode` and `exposeVnumaOnCpuHotadd`, already mapped above; it has no remaining configurable members.

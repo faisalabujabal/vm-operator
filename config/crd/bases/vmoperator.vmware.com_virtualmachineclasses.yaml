@@ -1220,6 +1220,199 @@ spec:
                   Once a non-empty value is assigned to this field, attempts to set this
                   field to an empty value will be silently ignored.
                 type: string
+              cpuAdvanced:
+                description: CPUAdvanced describes advanced CPU presets and policies.
+                properties:
+                  exposeVnumaOnCpuHotadd:
+                    description: ExposeVNUMAOnCPUHotAdd controls the virtualNuma.exposeVnumaOnCpuHotadd
+                      setting.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  hotAddEnabled:
+                    description: HotAddEnabled controls the cpuHotAddEnabled setting.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  hotRemoveEnabled:
+                    description: HotRemoveEnabled controls the cpuHotRemoveEnabled
+                      setting.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  iommuEnabled:
+                    description: IOMMUEnabled controls the flags.vvtdEnabled setting.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  latencySensitivity:
+                    description: LatencySensitivity selects Normal, High or HighWithHyperthreading.
+                    properties:
+                      allowed:
+                        description: Allowed contains the permitted values; omission
+                          differs from an empty list.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                      default:
+                        description: Default is the value supplied by this class.
+                        type: string
+                      required:
+                        description: Required disallows an empty value after defaulting.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: unsupported latency sensitivity default
+                      rule: '!has(self.default) || self.default in [''Normal'', ''High'',
+                        ''HighWithHyperthreading'']'
+                    - message: multiple allowed values require a default
+                      rule: '!has(self.allowed) || size(self.allowed) <= 1 || has(self.default)'
+                    - message: default must be allowed
+                      rule: '!has(self.default) || !has(self.allowed) || self.default
+                        in self.allowed'
+                  nestedHardwareVirtualizationEnabled:
+                    description: NestedHardwareVirtualizationEnabled controls the
+                      nestedHVEnabled setting.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  performanceCountersEnabled:
+                    description: PerformanceCountersEnabled controls the vPMCEnabled
+                      setting.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  topology:
+                    description: Topology describes guest CPU topology.
+                    properties:
+                      coresPerSocket:
+                        description: CoresPerSocket is the number of cores per virtual
+                          socket; zero means auto.
+                        properties:
+                          default:
+                            description: Default is the value supplied by the class.
+                            format: int32
+                            type: integer
+                          max:
+                            description: Max is the inclusive upper bound.
+                            format: int32
+                            type: integer
+                          min:
+                            description: Min is the inclusive lower bound.
+                            format: int32
+                            type: integer
+                        type: object
+                        x-kubernetes-validations:
+                        - message: min must be nonnegative
+                          rule: '!has(self.min) || self.min >= 0'
+                        - message: max must be nonnegative
+                          rule: '!has(self.max) || self.max >= 0'
+                        - message: default must be nonnegative
+                          rule: '!has(self.default) || self.default >= 0'
+                        - message: a bounded range requires a default
+                          rule: (!has(self.min) && !has(self.max)) || has(self.default)
+                        - message: default must not be below min
+                          rule: '!has(self.min) || !has(self.default) || self.default
+                            >= self.min'
+                        - message: default must not exceed max
+                          rule: '!has(self.max) || !has(self.default) || self.default
+                            <= self.max'
+                      vnumaNodeCount:
+                        description: VNUMANodeCount is the number of virtual NUMA
+                          nodes; zero means auto.
+                        properties:
+                          default:
+                            description: Default is the value supplied by the class.
+                            format: int32
+                            type: integer
+                          max:
+                            description: Max is the inclusive upper bound.
+                            format: int32
+                            type: integer
+                          min:
+                            description: Min is the inclusive lower bound.
+                            format: int32
+                            type: integer
+                        type: object
+                        x-kubernetes-validations:
+                        - message: min must be nonnegative
+                          rule: '!has(self.min) || self.min >= 0'
+                        - message: max must be nonnegative
+                          rule: '!has(self.max) || self.max >= 0'
+                        - message: default must be nonnegative
+                          rule: '!has(self.default) || self.default >= 0'
+                        - message: a bounded range requires a default
+                          rule: (!has(self.min) && !has(self.max)) || has(self.default)
+                        - message: default must not be below min
+                          rule: '!has(self.min) || !has(self.default) || self.default
+                            >= self.min'
+                        - message: default must not exceed max
+                          rule: '!has(self.max) || !has(self.default) || self.default
+                            <= self.max'
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a positive vnumaNodeCount default requires positive
+                        coresPerSocket default
+                      rule: '!has(self.vnumaNodeCount) || !has(self.vnumaNodeCount.default)
+                        || self.vnumaNodeCount.default == 0 || (has(self.coresPerSocket)
+                        && has(self.coresPerSocket.default) && self.coresPerSocket.default
+                        > 0)'
+                type: object
               description:
                 description: |-
                   Description describes the configuration of the VirtualMachineClass which
@@ -1302,6 +1495,40 @@ spec:
                           type: object
                         type: array
                     type: object
+                type: object
+              memoryAdvanced:
+                description: MemoryAdvanced describes advanced memory presets and
+                  policies.
+                properties:
+                  hotAddEnabled:
+                    description: HotAddEnabled controls the memoryHotAddEnabled setting.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  reservationLockedToMax:
+                    description: ReservationLockedToMax controls the memoryReservationLockedToMax
+                      setting.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
                 type: object
               reservedProfileName:
                 description: |-
@@ -1578,6 +1805,22 @@ spec:
                         quantity(string(self.cpu.default)).asInteger() <= 2147483647)'
                 type: object
             type: object
+            x-kubernetes-validations:
+            - message: a positive vnumaNodeCount default requires a divisible CPU
+                size default
+              rule: '!has(self.cpuAdvanced) || !has(self.cpuAdvanced.topology) ||
+                !has(self.cpuAdvanced.topology.vnumaNodeCount) || !has(self.cpuAdvanced.topology.vnumaNodeCount.default)
+                || self.cpuAdvanced.topology.vnumaNodeCount.default <= 0 || (has(self.resources)
+                && has(self.resources.size) && has(self.resources.size.cpu) && has(self.resources.size.cpu.default)
+                && quantity(string(self.resources.size.cpu.default)).isInteger() &&
+                quantity(string(self.resources.size.cpu.default)).asInteger() > 0
+                && quantity(string(self.resources.size.cpu.default)).asInteger() %
+                self.cpuAdvanced.topology.vnumaNodeCount.default == 0 && has(self.cpuAdvanced.topology.coresPerSocket)
+                && has(self.cpuAdvanced.topology.coresPerSocket.default) && self.cpuAdvanced.topology.coresPerSocket.default
+                > 0 && ((quantity(string(self.resources.size.cpu.default)).asInteger()
+                / self.cpuAdvanced.topology.vnumaNodeCount.default) % self.cpuAdvanced.topology.coresPerSocket.default
+                == 0 || self.cpuAdvanced.topology.coresPerSocket.default % (quantity(string(self.resources.size.cpu.default)).asInteger()
+                / self.cpuAdvanced.topology.vnumaNodeCount.default) == 0))'
           status:
             description: VirtualMachineClassStatus defines the observed state of VirtualMachineClass.
             type: object

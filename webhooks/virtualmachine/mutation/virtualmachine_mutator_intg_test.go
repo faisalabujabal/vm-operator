@@ -99,6 +99,8 @@ func intgTestsMutating() {
 			testCtx := ctx
 			class := builder.DummyVirtualMachineClassGenName()
 			class.Namespace = ctx.Namespace
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotRemoveEnabled: vmopv1.FixedClassBool(false), HotAddEnabled: vmopv1.FixedClassBool(true)}
+			class.Spec.MemoryAdvanced = &vmopv1.VirtualMachineClassMemoryAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Default: resource.NewQuantity(2, resource.DecimalSI)}
 			class.Spec.Resources.Size.Memory = &vmopv1.ResourceQuantityRange{Default: resource.NewQuantity(2*1024*1024*1024, resource.BinarySI)}
 			Expect(ctx.Client.Create(ctx, class)).To(Succeed())
@@ -109,6 +111,11 @@ func intgTestsMutating() {
 			DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, testCtx.vm)).To(Succeed()) })
 			actual := &vmopv1.VirtualMachine{}
 			Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(ctx.vm), actual)).To(Succeed())
+			Expect(actual.Spec.CPUAdvanced).NotTo(BeNil())
+			Expect(actual.Spec.CPUAdvanced.HotRemoveEnabled).NotTo(BeNil())
+			Expect(*actual.Spec.CPUAdvanced.HotRemoveEnabled).To(BeFalse())
+			Expect(*actual.Spec.CPUAdvanced.HotAddEnabled).To(BeTrue())
+			Expect(*actual.Spec.MemoryAdvanced.HotAddEnabled).To(BeFalse())
 			Expect(actual.Spec.Resources).NotTo(BeNil())
 			Expect(actual.Spec.Resources.Size.CPU.Value()).To(Equal(int64(2)))
 			Expect(actual.Spec.Resources.Size.Memory.Value()).To(Equal(int64(2 * 1024 * 1024 * 1024)))

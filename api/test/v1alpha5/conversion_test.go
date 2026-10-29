@@ -344,6 +344,98 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(hub.Annotations).NotTo(HaveKey(utilconversion.AnnotationKey))
 			})
 
+			It("promotes supported compute fields using effective legacy size and preserves unknown raw values", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"hardware":{"cpus":8,"memory":"4Gi"},"configSpec":{"_typeName":"VirtualMachineConfigSpec","numCPUs":16,"numCoresPerSocket":2,"virtualNuma":{"coresPerNumaNode":4,"exposeVnumaOnCpuHotadd":false},"cpuHotRemoveEnabled":true,"latencySensitivity":{"level":"high"},"simultaneousThreads":2,"flags":{"vvtdEnabled":false,"future":{"value":12345678901234567890}}}}}`), spoke)).To(Succeed())
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(*hub.Spec.CPUAdvanced.Topology.VNUMANodeCount.Default).To(Equal(int32(2)))
+				Expect(*hub.Spec.CPUAdvanced.HotRemoveEnabled.Default).To(BeTrue())
+				Expect(*hub.Spec.CPUAdvanced.ExposeVNUMAOnCPUHotAdd.Default).To(BeFalse())
+				Expect(*hub.Spec.CPUAdvanced.IOMMUEnabled.Default).To(BeFalse())
+				Expect(*hub.Spec.CPUAdvanced.LatencySensitivity.Default).To(Equal("HighWithHyperthreading"))
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","numCPUs":16,"flags":{"future":{"value":12345678901234567890}}}`))
+			})
+
+			It("preserves compute policies and honors individual older-writer edits", func() {
+				hub := classWithPolicies()
+				value, override := true, true
+				hub.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{
+					HotRemoveEnabled: &vmopv1.BoolPolicy{Default: &value, AllowOverride: &override},
+					IOMMUEnabled:     &vmopv1.BoolPolicy{Default: &value, AllowOverride: &override},
+				}
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				var restored vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec).To(Equal(hub.Spec))
+				body, err := json.Marshal(spoke)
+				Expect(err).NotTo(HaveOccurred())
+				var old struct {
+					Spec struct {
+						ConfigSpec json.RawMessage `json:"configSpec"`
+					} `json:"spec"`
+				}
+				Expect(json.Unmarshal(body, &old)).To(Succeed())
+				doc, err := vmopv1.ParseClassConfigSpec(old.Spec.ConfigSpec)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(doc.Set("cpuHotRemoveEnabled", false)).To(Succeed())
+				old.Spec.ConfigSpec, err = doc.Marshal()
+				Expect(err).NotTo(HaveOccurred())
+				body, err = json.Marshal(old)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(json.Unmarshal(body, spoke)).To(Succeed())
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec.CPUAdvanced.HotRemoveEnabled).To(Equal(vmopv1.FixedClassBool(false)))
+				Expect(restored.Spec.CPUAdvanced.IOMMUEnabled).To(Equal(hub.Spec.CPUAdvanced.IOMMUEnabled))
+				Expect(restored.Spec.Resources).To(Equal(hub.Spec.Resources))
+			})
+
+			It("retains unsupported raw compute values and clears stale reused destinations", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"hardware":{"cpus":8},"configSpec":{"latencySensitivity":{"level":"low"},"virtualNuma":{"coresPerNumaNode":3}}}}`), spoke)).To(Succeed())
+				hub := vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{CPUAdvanced: &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotRemoveEnabled: vmopv1.FixedClassBool(true)}}}
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.CPUAdvanced).To(BeNil())
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"latencySensitivity":{"level":"low"},"virtualNuma":{"coresPerNumaNode":3}}`))
+			})
+
+			It("retains unrepresentable latency and SMT combinations unchanged", func() {
+				for _, pair := range []struct {
+					level   string
+					threads int32
+				}{{"high", 0}, {"high", 3}, {"normal", 2}} {
+					spoke := version.newSpoke()
+					body, err := json.Marshal(map[string]any{"spec": map[string]any{"configSpec": map[string]any{"latencySensitivity": map[string]any{"level": pair.level}, "simultaneousThreads": pair.threads}}})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(json.Unmarshal(body, spoke)).To(Succeed())
+					var hub vmopv1.VirtualMachineClass
+					Expect(spoke.ConvertTo(&hub)).To(Succeed())
+					Expect(hub.Spec.CPUAdvanced).To(BeNil())
+					raw, err := vmopv1.ProjectClassConfigSpec(&hub.Spec)
+					Expect(err).NotTo(HaveOccurred())
+					doc, err := vmopv1.ParseClassConfigSpec(raw)
+					Expect(err).NotTo(HaveOccurred())
+					var threads int32
+					ok, err := doc.Get("simultaneousThreads", &threads)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(ok).To(BeTrue())
+					Expect(threads).To(Equal(pair.threads))
+				}
+			})
+			It("preserves unrepresentable raw leaf types and incompatible NUMA topology", func() {
+				spoke := version.newSpoke()
+				raw := `{"cpuHotRemoveEnabled":"legacy-invalid","numCoresPerSocket":1.5,"latencySensitivity":{"level":1}}`
+				Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":`+raw+`}}`), spoke)).To(Succeed())
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.CPUAdvanced).To(BeNil())
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(raw))
+				Expect(json.Unmarshal([]byte(`{"spec":{"hardware":{"cpus":6},"configSpec":{"numCoresPerSocket":2,"virtualNuma":{"coresPerNumaNode":3}}}}`), spoke)).To(Succeed())
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.CPUAdvanced.Topology.VNUMANodeCount).To(BeNil())
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"virtualNuma":{"coresPerNumaNode":3}}`))
+			})
 			It("copies metadata before preserving class policies", func() {
 				hub := classWithPolicies()
 				hub.Annotations = map[string]string{"user": "keep"}
@@ -612,4 +704,47 @@ var _ = Describe("Shared class preset helpers", Label("api"), func() {
 		_, err = vmopv1.ParseClassConfigSpec(json.RawMessage(`{"flags":`))
 		Expect(err).To(HaveOccurred())
 	})
+})
+
+var _ = Describe("Typed compute projection precedence", Label("api"), func() {
+	It("overrides conflicting raw hyperthreading for a High typed default", func() {
+		level := "High"
+		spec := vmopv1.VirtualMachineClassSpec{
+			ConfigSpec:  json.RawMessage(`{"latencySensitivity":{"level":"high"},"simultaneousThreads":2}`),
+			CPUAdvanced: &vmopv1.VirtualMachineClassCPUAdvancedSpec{LatencySensitivity: &vmopv1.EnumPolicy{Default: &level}},
+		}
+		raw, err := vmopv1.ProjectClassConfigSpec(&spec)
+		Expect(err).NotTo(HaveOccurred())
+		doc, err := vmopv1.ParseClassConfigSpec(raw)
+		Expect(err).NotTo(HaveOccurred())
+		var threads int32
+		ok, err := doc.Get("simultaneousThreads", &threads)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(ok).To(BeTrue())
+		Expect(threads).To(Equal(int32(1)))
+	})
+})
+
+var _ = Describe("CPU VM counterpart conversion", Label("api"), func() {
+	for _, version := range []struct {
+		name  string
+		spoke func() ctrlconversion.Convertible
+	}{
+		{"v1alpha1", func() ctrlconversion.Convertible { return &vmopv1a1.VirtualMachine{} }},
+		{"v1alpha2", func() ctrlconversion.Convertible { return &vmopv1a2.VirtualMachine{} }},
+		{"v1alpha3", func() ctrlconversion.Convertible { return &vmopv1a3.VirtualMachine{} }},
+		{"v1alpha4", func() ctrlconversion.Convertible { return &vmopv1a4.VirtualMachine{} }},
+		{"v1alpha5", func() ctrlconversion.Convertible { return &vmopv1a5.VirtualMachine{} }},
+	} {
+		It("preserves new flags through "+version.name, func() {
+			value := true
+			hub := &vmopv1.VirtualMachine{Spec: vmopv1.VirtualMachineSpec{CPUAdvanced: &vmopv1.VirtualMachineCPUAdvancedSpec{HotRemoveEnabled: &value}}}
+			spoke := version.spoke()
+			Expect(spoke.ConvertFrom(hub)).To(Succeed())
+			var restored vmopv1.VirtualMachine
+			Expect(spoke.ConvertTo(&restored)).To(Succeed())
+			Expect(restored.Spec.CPUAdvanced.HotRemoveEnabled).NotTo(BeNil())
+			Expect(*restored.Spec.CPUAdvanced.HotRemoveEnabled).To(BeTrue())
+		})
+	}
 })

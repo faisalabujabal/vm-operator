@@ -121,8 +121,8 @@ func classScalarCopy[T ~bool | ~int32 | ~int64 | ~string](value *T) *T {
 	if value == nil {
 		return nil
 	}
-	copy := *value
-	return &copy
+	result := *value
+	return &result
 }
 
 // RestoreClassPolicies restores fields an older API cannot represent unless

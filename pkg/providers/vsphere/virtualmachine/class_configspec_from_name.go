@@ -16,7 +16,8 @@ import (
 )
 
 // ClassConfigSpecFromClassSpec returns the vim ConfigSpec derived from a
-// VirtualMachineClassSpec (ConfigSpec JSON or hardware devices).
+// VirtualMachineClassSpec, projecting typed presets through the same mapping
+// used by older API conversions while preserving legacy device precedence.
 func ClassConfigSpecFromClassSpec(
 	ctx context.Context,
 	spec *vmopv1.VirtualMachineClassSpec,
@@ -26,12 +27,21 @@ func ClassConfigSpecFromClassSpec(
 		return vimtypes.VirtualMachineConfigSpec{}, nil
 	}
 
-	if len(spec.ConfigSpec) > 0 {
-		configSpec, err := util.UnmarshalConfigSpecFromJSON(spec.ConfigSpec)
+	raw, err := vmopv1.ProjectClassConfigSpec(spec)
+	if err != nil {
+		return vimtypes.VirtualMachineConfigSpec{}, fmt.Errorf("project class presets: %w", err)
+	}
+	if len(raw) > 0 {
+		configSpec, err := util.UnmarshalConfigSpecFromJSON(raw)
 		if err != nil {
 			return vimtypes.VirtualMachineConfigSpec{}, err
 		}
 		util.SanitizeVMClassConfigSpec(ctx, &configSpec)
+		// Projecting a typed preset creates ConfigSpec JSON even when the class
+		// had none. Its typed devices still apply in that case.
+		if len(spec.ConfigSpec) == 0 {
+			configSpec.DeviceChange = append(configSpec.DeviceChange, ConfigSpecFromVMClassDevices(spec).DeviceChange...)
+		}
 		return configSpec, nil
 	}
 

@@ -5,6 +5,12 @@
 package virtualmachineclass_test
 
 import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/cespare/xxhash/v2"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -125,6 +131,42 @@ func unitTestsReconcile() {
 				Expect(instance.Labels).To(HaveKey(vmopv1.VMClassInstanceActiveLabelKey))
 			})
 
+			It("preserves the pre-compute hash when compute policies are omitted", func() {
+				vmClass.Spec.ConfigSpec = nil
+				legacy, err := json.Marshal(struct {
+					ConfigSpec          vimtypes.VirtualMachineConfigSpec   `json:"configSpec"`
+					Hardware            vmopv1.VirtualMachineClassHardware  `json:"hardware"`
+					Resources           vmopv1.VirtualMachineClassResources `json:"resources"`
+					ReservedProfileName *vmopv1.EnumPolicy                  `json:"reservedProfileName,omitempty"`
+				}{vimtypes.VirtualMachineConfigSpec{}, vmClass.Spec.Hardware, vmClass.Spec.Resources, vmClass.Spec.ReservedProfileName})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(reconciler.ReconcileNormal(vmClassCtx)).To(Succeed())
+				list := &vmopv1.VirtualMachineClassInstanceList{}
+				Expect(ctx.Client.List(ctx, list, client.InNamespace(vmClass.Namespace))).To(Succeed())
+				Expect(list.Items).To(HaveLen(1))
+				Expect(list.Items[0].Annotations[pkgconst.VirtualMachineClassHashAnnotationKey]).To(Equal(fmt.Sprintf("%016x", xxhash.Sum64(legacy))))
+			})
+			It("changes snapshot identity when only a compute policy changes", func() {
+				vmClass.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotRemoveEnabled: vmopv1.FixedClassBool(false)}
+				Expect(ctx.Client.Update(ctx, vmClass)).To(Succeed())
+				Expect(reconciler.ReconcileNormal(vmClassCtx)).To(Succeed())
+				list := &vmopv1.VirtualMachineClassInstanceList{}
+				Expect(ctx.Client.List(ctx, list, client.InNamespace(vmClass.Namespace))).To(Succeed())
+				Expect(list.Items).To(HaveLen(1))
+				previous := list.Items[0].Annotations[pkgconst.VirtualMachineClassHashAnnotationKey]
+				vmClass.Spec.CPUAdvanced.HotRemoveEnabled.AllowOverride = ptr.To(true)
+				Expect(ctx.Client.Update(ctx, vmClass)).To(Succeed())
+				Expect(reconciler.ReconcileNormal(vmClassCtx)).To(Succeed())
+				Expect(ctx.Client.List(ctx, list, client.InNamespace(vmClass.Namespace))).To(Succeed())
+				var active *vmopv1.VirtualMachineClassInstance
+				for i := range list.Items {
+					if _, ok := list.Items[i].Labels[vmopv1.VMClassInstanceActiveLabelKey]; ok {
+						active = &list.Items[i]
+					}
+				}
+				Expect(active).NotTo(BeNil())
+				Expect(active.Annotations[pkgconst.VirtualMachineClassHashAnnotationKey]).NotTo(Equal(previous))
+			})
 			It("should create an instance when ConfigSpec is omitted", func() {
 				vmClass.Spec.ConfigSpec = nil
 				Expect(reconciler.ReconcileNormal(vmClassCtx)).To(Succeed())

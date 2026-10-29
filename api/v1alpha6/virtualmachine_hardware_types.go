@@ -451,6 +451,13 @@ type VirtualMachineCPUAllocationStatus struct {
 	// Maps to VirtualMachineConfigInfo.cpuHotAddEnabled.
 	HotAddEnabled *bool `json:"hotAddEnabled,omitempty"`
 
+	// HotRemoveEnabled reports the observed CPU hot-remove capability.
+	// +optional
+	HotRemoveEnabled *bool `json:"hotRemoveEnabled,omitempty"`
+	// ExposeVNUMAOnCPUHotAdd reports whether vNUMA is exposed with CPU hot-add.
+	// +optional
+	ExposeVNUMAOnCPUHotAdd *bool `json:"exposeVnumaOnCpuHotadd,omitempty"`
+
 	// +optional
 
 	// IOMMUEnabled describes whether Intel VT-d (IOMMU) is observed as enabled.

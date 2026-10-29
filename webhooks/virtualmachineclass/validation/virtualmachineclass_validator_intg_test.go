@@ -150,6 +150,33 @@ func intgTestsValidateCreate() {
 		Entry("rejects CPU size defaults above int32", func(class *vmopv1.VirtualMachineClass) {
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Default: ptr.To(resource.MustParse("2147483648"))}
 		}, true),
+		Entry("accepts explicit false compute defaults", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotRemoveEnabled: vmopv1.FixedClassBool(false)}
+		}, false),
+		Entry("rejects fixed boolean without a default", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: &vmopv1.BoolPolicy{AllowOverride: ptr.To(false)}}
+		}, true),
+		Entry("rejects negative topology defaults", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: vmopv1.FixedClassInt(-1)}}
+		}, true),
+		Entry("rejects positive NUMA node default without cores per socket", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{VNUMANodeCount: vmopv1.FixedClassInt(2)}}
+		}, true),
+		Entry("rejects unsupported latency defaults", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{LatencySensitivity: &vmopv1.EnumPolicy{Default: ptr.To("Low")}}
+		}, true),
+		Entry("rejects NUMA defaults without divisible guest CPU size", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("3"))
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: vmopv1.FixedClassInt(1), VNUMANodeCount: vmopv1.FixedClassInt(2)}}
+		}, true),
+		Entry("rejects unsupported allowed latency levels", func(class *vmopv1.VirtualMachineClass) {
+			values := []string{"Normal", "Low"}
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{LatencySensitivity: &vmopv1.EnumPolicy{Default: ptr.To("Normal"), Allowed: &values}}
+		}, true),
+		Entry("rejects CPU and NUMA topology with incompatible socket divisibility", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("6"))
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: vmopv1.FixedClassInt(2), VNUMANodeCount: vmopv1.FixedClassInt(2)}}
+		}, true),
 		Entry("accepts enum default in allowed values", func(class *vmopv1.VirtualMachineClass) {
 			allowed := []string{"gold", "silver"}
 			class.Spec.ReservedProfileName = &vmopv1.EnumPolicy{Default: ptr.To("gold"), Allowed: &allowed}

@@ -3107,3 +3107,20 @@ var _ = Describe("Class boot and legacy device projection", func() {
 		Expect(device.Backing.(*vimtypes.VirtualPCIPassthroughVmiopBackingInfo).Vgpu).To(Equal("existing-profile"))
 	})
 })
+
+var _ = Describe("Typed class compute configuration", func() {
+	It("uses the shared projection and preserves raw unrelated values", func() {
+		spec := &vmopv1.VirtualMachineClassSpec{
+			ConfigSpec:     []byte(`{"_typeName":"VirtualMachineConfigSpec","annotation":"keep","cpuHotRemoveEnabled":true,"flags":{"vvtdEnabled":true}}`),
+			CPUAdvanced:    &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotRemoveEnabled: vmopv1.FixedClassBool(false), IOMMUEnabled: vmopv1.FixedClassBool(false)},
+			MemoryAdvanced: &vmopv1.VirtualMachineClassMemoryAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(true)},
+		}
+		actual, err := virtualmachine.ClassConfigSpecFromClassSpec(context.Background(), spec)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(actual.Annotation).To(Equal("keep"))
+		Expect(actual.CpuHotRemoveEnabled).To(Equal(ptr.To(false)))
+		Expect(actual.Flags.VvtdEnabled).To(Equal(ptr.To(false)))
+		Expect(actual.MemoryHotAddEnabled).To(Equal(ptr.To(true)))
+
+	})
+})

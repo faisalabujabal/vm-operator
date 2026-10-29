@@ -15277,6 +15277,7 @@ spec:
                     description: |-
                       HotRemoveEnabled enables the CPU hot-remove capability. Changing this
                       flag requires power-off; CPU size decreases still require power-off.
+                      Omission leaves existing configuration unchanged; explicit false disables it.
                       Maps to ConfigSpec.CpuHotRemoveEnabled.
                     type: boolean
                   iommuEnabled:
@@ -17434,10 +17435,18 @@ spec:
                           Maps to VirtualHardware.numCoresPerSocket.
                         format: int32
                         type: integer
+                      exposeVnumaOnCpuHotadd:
+                        description: ExposeVNUMAOnCPUHotAdd reports whether vNUMA
+                          is exposed with CPU hot-add.
+                        type: boolean
                       hotAddEnabled:
                         description: |-
                           HotAddEnabled describes whether CPU hot-add is observed as enabled.
                           Maps to VirtualMachineConfigInfo.cpuHotAddEnabled.
+                        type: boolean
+                      hotRemoveEnabled:
+                        description: HotRemoveEnabled reports the observed CPU hot-remove
+                          capability.
                         type: boolean
                       iommuEnabled:
                         description: |-

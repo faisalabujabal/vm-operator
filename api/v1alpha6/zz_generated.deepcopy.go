@@ -1252,6 +1252,16 @@ func (in *VirtualMachineCPUAllocationStatus) DeepCopyInto(out *VirtualMachineCPU
 		*out = new(bool)
 		**out = **in
 	}
+	if in.HotRemoveEnabled != nil {
+		in, out := &in.HotRemoveEnabled, &out.HotRemoveEnabled
+		*out = new(bool)
+		**out = **in
+	}
+	if in.ExposeVNUMAOnCPUHotAdd != nil {
+		in, out := &in.ExposeVNUMAOnCPUHotAdd, &out.ExposeVNUMAOnCPUHotAdd
+		*out = new(bool)
+		**out = **in
+	}
 	if in.IOMMUEnabled != nil {
 		in, out := &in.IOMMUEnabled, &out.IOMMUEnabled
 		*out = new(bool)

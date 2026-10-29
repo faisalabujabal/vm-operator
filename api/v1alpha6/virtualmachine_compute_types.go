@@ -170,6 +170,7 @@ type VirtualMachineCPUAdvancedSpec struct {
 
 	// HotRemoveEnabled enables the CPU hot-remove capability. Changing this
 	// flag requires power-off; CPU size decreases still require power-off.
+	// Omission leaves existing configuration unchanged; explicit false disables it.
 	// Maps to ConfigSpec.CpuHotRemoveEnabled.
 	// +optional
 	HotRemoveEnabled *bool `json:"hotRemoveEnabled,omitempty"`

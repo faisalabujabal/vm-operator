@@ -652,3 +652,16 @@ var _ = Describe("ComputeConfigFromMoVM", func() {
 		})
 	})
 })
+
+var _ = Describe("CPU hot-remove backfill", func() {
+	It("records the live flag once and preserves explicit false", func() {
+		vm := &vmopv1.VirtualMachine{}
+		live := mo.VirtualMachine{Config: &vimtypes.VirtualMachineConfigInfo{CpuHotRemoveEnabled: ptr.To(true)}}
+		Expect(backfill.ComputeConfigFromMoVM(context.Background(), vm, live)).To(BeTrue())
+		Expect(vm.Spec.CPUAdvanced.HotRemoveEnabled).To(Equal(ptr.To(true)))
+		Expect(backfill.ComputeConfigFromMoVM(context.Background(), vm, live)).To(BeFalse())
+		vm.Spec.CPUAdvanced.HotRemoveEnabled = ptr.To(false)
+		Expect(backfill.ComputeConfigFromMoVM(context.Background(), vm, live)).To(BeFalse())
+		Expect(vm.Spec.CPUAdvanced.HotRemoveEnabled).To(Equal(ptr.To(false)))
+	})
+})

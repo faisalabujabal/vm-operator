@@ -114,15 +114,13 @@ func promoteClassLatency(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDocu
 		var selected string
 		var threads int32
 		threadsSet, err := doc.Get("simultaneousThreads", &threads)
-		if err != nil {
-			return nil
-		}
+		// Invalid raw leaf types are not representable presets; keep them raw.
 		switch {
-		case level == "normal" && (!threadsSet || threads == 1):
+		case err == nil && level == "normal" && (!threadsSet || threads == 1):
 			selected = string(VirtualMachineLatencySensitivityNormal)
-		case level == "high" && (!threadsSet || threads == 1):
+		case err == nil && level == "high" && (!threadsSet || threads == 1):
 			selected = string(VirtualMachineLatencySensitivityHigh)
-		case level == "high" && threadsSet && threads == 2:
+		case err == nil && level == "high" && threadsSet && threads == 2:
 			selected = string(VirtualMachineLatencySensitivityHighWithHyperthreading)
 			if err := doc.Delete("simultaneousThreads"); err != nil {
 				return err

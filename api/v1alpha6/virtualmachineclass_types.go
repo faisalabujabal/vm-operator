@@ -131,6 +131,13 @@ type VirtualMachineClassSpec struct {
 	// Resources describes guest size, reservations and limits.
 	Resources VirtualMachineClassResources `json:"resources,omitempty"`
 
+	// CPUAdvanced describes advanced CPU presets and policies.
+	// +optional
+	CPUAdvanced *VirtualMachineClassCPUAdvancedSpec `json:"cpuAdvanced,omitempty"`
+	// MemoryAdvanced describes advanced memory presets and policies.
+	// +optional
+	MemoryAdvanced *VirtualMachineClassMemoryAdvancedSpec `json:"memoryAdvanced,omitempty"`
+
 	// +optional
 
 	// BootOptions describes class-supplied boot settings.

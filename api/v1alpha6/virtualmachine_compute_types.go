@@ -168,6 +168,17 @@ type VirtualMachineCPUAdvancedSpec struct {
 	// Requires power-off to apply.
 	HotAddEnabled *bool `json:"hotAddEnabled,omitempty"`
 
+	// HotRemoveEnabled enables the CPU hot-remove capability. Changing this
+	// flag requires power-off; CPU size decreases still require power-off.
+	// Maps to ConfigSpec.CpuHotRemoveEnabled.
+	// +optional
+	HotRemoveEnabled *bool `json:"hotRemoveEnabled,omitempty"`
+	// ExposeVNUMAOnCPUHotAdd permits vNUMA exposure with CPU hot-add enabled.
+	// Maps to ConfigSpec.VirtualNuma.ExposeVnumaOnCpuHotadd.
+	// Requires hardware version vmx-20 or later and power-off to apply.
+	// +optional
+	ExposeVNUMAOnCPUHotAdd *bool `json:"exposeVnumaOnCpuHotadd,omitempty"`
+
 	// +optional
 
 	// IOMMUEnabled enables Intel Virtualization Technology for Directed I/O

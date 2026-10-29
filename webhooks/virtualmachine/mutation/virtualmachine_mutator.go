@@ -309,7 +309,7 @@ func (m mutator) Mutate(ctx *pkgctx.WebhookRequestContext) admission.Response {
 			}
 		}
 
-		if _, err := vmclass.ApplyResourceDefaults(ctx, m.client, m.resourceProvider, modified, nil); err != nil {
+		if _, err := vmclass.ApplyDefaults(ctx, m.client, m.resourceProvider, modified, nil); err != nil {
 			return admission.Denied(err.Error())
 		}
 
@@ -340,7 +340,7 @@ func (m mutator) Mutate(ctx *pkgctx.WebhookRequestContext) admission.Response {
 			}
 		}
 
-		if changed, err := vmclass.ApplyResourceDefaults(ctx, m.client, m.resourceProvider, modified, oldVM); err != nil {
+		if changed, err := vmclass.ApplyDefaults(ctx, m.client, m.resourceProvider, modified, oldVM); err != nil {
 			return admission.Denied(err.Error())
 		} else if changed {
 			wasMutated = true

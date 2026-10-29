@@ -5,10 +5,10 @@
 package vmclass
 
 import (
-	"k8s.io/apimachinery/pkg/util/validation/field"
 	"slices"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	vmopv1common "github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
@@ -24,31 +24,19 @@ func applyAdvancedDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachin
 	if a == nil {
 		a = &vmopv1.VirtualMachineClassAdvancedSpec{}
 	}
-	if reset || (a.ChangeBlockTracking != nil && a.ChangeBlockTracking.Default != nil) {
-		d.ChangeBlockTracking = vmopv1.ClassBoolDefault(a.ChangeBlockTracking)
-	}
-	if reset || (a.PreferHTEnabled != nil && a.PreferHTEnabled.Default != nil) {
-		d.PreferHTEnabled = vmopv1.ClassBoolDefault(a.PreferHTEnabled)
-	}
-	if reset || (a.HugePages1GEnabled != nil && a.HugePages1GEnabled.Default != nil) {
-		d.HugePages1GEnabled = vmopv1.ClassBoolDefault(a.HugePages1GEnabled)
-	}
-	if reset || (a.TimeTrackerLowLatencyEnabled != nil && a.TimeTrackerLowLatencyEnabled.Default != nil) {
-		d.TimeTrackerLowLatencyEnabled = vmopv1.ClassBoolDefault(a.TimeTrackerLowLatencyEnabled)
-	}
-	if reset || (a.CPUAffinityExclusiveNoStatsEnabled != nil && a.CPUAffinityExclusiveNoStatsEnabled.Default != nil) {
-		d.CPUAffinityExclusiveNoStatsEnabled = vmopv1.ClassBoolDefault(a.CPUAffinityExclusiveNoStatsEnabled)
-	}
-	if reset || (a.VMXSwapEnabled != nil && a.VMXSwapEnabled.Default != nil) {
-		d.VMXSwapEnabled = vmopv1.ClassBoolDefault(a.VMXSwapEnabled)
-	}
-	if reset || (a.PNUMANodeAffinity != nil && a.PNUMANodeAffinity.Default != nil) {
+	applyAdvancedBoolDefault(&d.ChangeBlockTracking, a.ChangeBlockTracking, reset)
+	applyAdvancedBoolDefault(&d.PreferHTEnabled, a.PreferHTEnabled, reset)
+	applyAdvancedBoolDefault(&d.HugePages1GEnabled, a.HugePages1GEnabled, reset)
+	applyAdvancedBoolDefault(&d.TimeTrackerLowLatencyEnabled, a.TimeTrackerLowLatencyEnabled, reset)
+	applyAdvancedBoolDefault(&d.CPUAffinityExclusiveNoStatsEnabled, a.CPUAffinityExclusiveNoStatsEnabled, reset)
+	applyAdvancedBoolDefault(&d.VMXSwapEnabled, a.VMXSwapEnabled, reset)
+	if reset {
 		d.PNUMANodeAffinity = nil
 	}
 	if a.PNUMANodeAffinity != nil && a.PNUMANodeAffinity.Default != nil {
 		d.PNUMANodeAffinity = slices.Clone(*a.PNUMANodeAffinity.Default)
 	}
-	if reset || (a.ExtraConfig != nil && a.ExtraConfig.Default != nil) {
+	if reset {
 		d.ExtraConfig = nil
 	}
 	if a.ExtraConfig != nil && a.ExtraConfig.Default != nil {
@@ -61,10 +49,7 @@ func applyAdvancedDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachin
 			d.ExtraConfig = append(d.ExtraConfig, item)
 		}
 	}
-	// Preserve explicit empty values in policy defaults without sharing storage.
-	if a.ExtraConfig != nil && a.ExtraConfig.Default != nil && d.ExtraConfig == nil {
-		d.ExtraConfig = []vmopv1common.KeyValuePair{}
-	}
+
 	if apiequality.Semantic.DeepEqual(d, &vmopv1.VirtualMachineAdvancedSpec{}) {
 		vm.Spec.Advanced = nil
 	}
@@ -72,7 +57,6 @@ func applyAdvancedDefaults(vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachin
 
 // ValidateAdvancedPolicies validates advanced class policy relationships that
 // cannot be expressed within the CRD's CEL evaluation budget.
-
 func ValidateAdvancedPolicies(spec *vmopv1.VirtualMachineClassSpec) field.ErrorList {
 	if spec.Advanced == nil {
 		return nil
@@ -93,4 +77,10 @@ func ValidateAdvancedPolicies(spec *vmopv1.VirtualMachineClassSpec) field.ErrorL
 		}
 	}
 	return append(errors, field.Invalid(field.NewPath("spec", "advanced", "pnumaNodeAffinity", "default"), *policy.Default, "default must be an allowed set"))
+}
+
+func applyAdvancedBoolDefault(dst **bool, policy *vmopv1.BoolPolicy, reset bool) {
+	if reset || (policy != nil && policy.Default != nil) {
+		*dst = vmopv1.ClassBoolDefault(policy)
+	}
 }

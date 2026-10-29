@@ -60,31 +60,18 @@ func promoteClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDoc
 	var residual []json.RawMessage
 	var defaults []vmopv1common.KeyValuePair
 	for _, raw := range entries {
-		var item map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &item); err != nil {
-			return fmt.Errorf("decode class ExtraConfig item: %w", err)
+
+		item, err := classExtraConfigStringItem(raw)
+		if err != nil {
+			return err
 		}
-		var key, value string
-		if json.Unmarshal(item["key"], &key) != nil || !decodeClassExtraConfigString(item["value"], &value) {
+		if item == nil || counts[item.Key] != 1 {
 			residual = append(residual, raw)
 			continue
 		}
-		supported := counts[key] == 1
-		if rawType, ok := item["_typeName"]; ok {
-			var name string
-			if json.Unmarshal(rawType, &name) != nil || name != "OptionValue" {
-				supported = false
-			}
-		}
-		for name := range item {
-			if name != "key" && name != "value" && name != "_typeName" {
-				supported = false
-			}
-		}
-		if !supported {
-			residual = append(residual, raw)
-			continue
-		}
+		key, value := item.Key, item.Value
+		supported := true
+
 		promoted := false
 		for _, f := range classAdvancedBoolFields(a) {
 			if key != f.key {
@@ -99,29 +86,13 @@ func promoteClassAdvanced(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDoc
 			break
 		}
 		if key == "numa.nodeAffinity" {
-			members := []int32{}
-			valid := true
-			seen := map[int32]bool{}
-			if value != "" {
-				for _, part := range strings.Split(value, ",") {
-					n, err := strconv.ParseInt(strings.TrimSpace(part), 10, 32)
-					if err != nil || n < 0 {
-						valid = false
-						break
-					}
-					if seen[int32(n)] {
-						valid = false
-						break
-					}
-					members = append(members, int32(n))
-					seen[int32(n)] = true
-				}
-			}
-			if valid {
-				sets := []Int32Set{{Members: append([]int32{}, members...)}}
-				a.PNUMANodeAffinity = &Int32SetPolicy{Default: &members, Allowed: &sets}
+
+			if members := classNUMAMembers(value); members != nil {
+				sets := []Int32Set{{Members: append([]int32{}, (*members)...)}}
+				a.PNUMANodeAffinity = &Int32SetPolicy{Default: members, Allowed: &sets}
 				promoted = true
 			}
+
 			supported = false
 		}
 		if promoted {
@@ -277,4 +248,44 @@ func overlayClassExtraConfig(entries []json.RawMessage, value vmopv1common.KeyVa
 		return nil, err
 	}
 	return append(result, raw), nil
+}
+
+func classExtraConfigStringItem(raw json.RawMessage) (*vmopv1common.KeyValuePair, error) {
+	var item map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return nil, fmt.Errorf("decode class ExtraConfig item: %w", err)
+	}
+	var result vmopv1common.KeyValuePair
+	if json.Unmarshal(item["key"], &result.Key) != nil || !decodeClassExtraConfigString(item["value"], &result.Value) {
+		return nil, nil
+	}
+	if rawType, ok := item["_typeName"]; ok {
+		var name string
+		if json.Unmarshal(rawType, &name) != nil || name != "OptionValue" {
+			return nil, nil
+		}
+	}
+	for name := range item {
+		if name != "key" && name != "value" && name != "_typeName" {
+			return nil, nil
+		}
+	}
+	return &result, nil
+}
+
+func classNUMAMembers(value string) *[]int32 {
+	members := []int32{}
+	if value == "" {
+		return &members
+	}
+	seen := map[int32]bool{}
+	for _, part := range strings.Split(value, ",") {
+		n, err := strconv.ParseInt(strings.TrimSpace(part), 10, 32)
+		if err != nil || n < 0 || seen[int32(n)] {
+			return nil
+		}
+		members = append(members, int32(n))
+		seen[int32(n)] = true
+	}
+	return &members
 }

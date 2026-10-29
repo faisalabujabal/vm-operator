@@ -15,7 +15,7 @@
 
 `VirtualMachineClass` becomes the one kind for VM presets and VM governance:
 
-1. Every configuration field the class can bound has a typed value shape: number (`min`, `max`, `default`), enum, boolean or list. A fixed size is `min == max == default`, so one class can offer one size or a range. CPU requests and limits stay in vCPUs, as in today's class. Devices are one list; a separate set shape is deferred.
+1. Every configuration field the class can bound has a typed value shape: number (`min`, `max`, `default`), enum, boolean, list or set. A fixed size is `min == max == default`, so one class can offer one size or a range. CPU requests and limits stay in vCPUs, as in today's class. Device collections use list policies; physical NUMA affinity uses a set policy so approved node combinations remain one setting.
 2. A class can govern: with `spec.governs`, its constraints are the ceiling for every VM in the zones it governs, whether or not the VM names it. A zone with a governing class accepts classless (free-form) VMs; a zone without one requires a class, as today.
 3. Classes are zonal: `spec.zones` and `spec.governs.zones` say where a class is available and where it governs.
 4. `spec.externalID` holds the client's identity for the class, separate from the Kubernetes name.

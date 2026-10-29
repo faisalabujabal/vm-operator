@@ -278,7 +278,9 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 			actualExtra[v.Key] = v.Value
 		}
 		Expect(actualExtra).To(HaveKeyWithValue("example.vmclass-advanced", "class-default"))
-		Expect(strings.EqualFold(fmt.Sprint(actualExtra["numa.vcpu.preferHT"]), "false")).To(BeTrue())
+		for _, key := range []string{"numa.vcpu.preferHT", "sched.mem.lpage.enable1GPage", "timeTracker.lowLatency", "sched.cpu.affinity.exclusiveNoStats", "sched.swap.vmxSwapEnabled"} {
+			Expect(strings.EqualFold(fmt.Sprint(actualExtra[key]), "false")).To(BeTrue(), "class preset %s was not realized", key)
+		}
 		Expect(vmMO.Config.Hardware.NumCPU).To(BeEquivalentTo(classCPU.Value()))
 		Expect(vmMO.Config.Hardware.MemoryMB).To(BeEquivalentTo(classMemory.Value() / 1024 / 1024))
 	})

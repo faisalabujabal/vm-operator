@@ -75,8 +75,19 @@ func ApplyDefaults(
 	if err != nil {
 		return false, fmt.Errorf("resolve resources for class %s: %w", vm.Spec.ClassName, err)
 	}
+	// Resolve native raw presets and typed defaults through the same mapping
+	// used by conversion and the provider. Work on a copy so policy constraints
+	// and the original legacy document remain unchanged in the cached class.
+	effective := spec.DeepCopy()
+	effective.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(&spec)
+	if err != nil {
+		return false, fmt.Errorf("project defaults for class %s: %w", vm.Spec.ClassName, err)
+	}
+	if err := vmopv1.PromoteClassConfigSpec(effective); err != nil {
+		return false, fmt.Errorf("resolve defaults for class %s: %w", vm.Spec.ClassName, err)
+	}
 	before := vm.Spec.DeepCopy()
 	vm.Spec.Resources = resources.DeepCopy()
-	applyComputeDefaults(vm, &spec, oldVM != nil)
+	applyComputeDefaults(vm, effective, oldVM != nil)
 	return !apiequality.Semantic.DeepEqual(*before, vm.Spec), nil
 }

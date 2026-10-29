@@ -307,7 +307,16 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(projected.ConvertFrom(&hub)).To(Succeed())
 				var restored vmopv1.VirtualMachineClass
 				Expect(projected.ConvertTo(&restored)).To(Succeed())
-				Expect(restored.Spec).To(Equal(hub.Spec))
+				Expect(apiequality.Semantic.DeepEqual(restored.Spec, hub.Spec)).To(BeTrue())
+			})
+
+			It("retains legacy boot delays outside the VM duration domain as raw presets", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"configSpec":{"_typeName":"VirtualMachineConfigSpec","bootOptions":{"bootDelay":-1,"bootRetryDelay":9223372036855}}}}`), spoke)).To(Succeed())
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.BootOptions).To(BeNil())
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","bootOptions":{"bootDelay":-1,"bootRetryDelay":9223372036855}}`))
 			})
 
 			It("preserves boot policies per leaf while honoring older-writer raw edits", func() {

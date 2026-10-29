@@ -516,6 +516,110 @@ spec:
               VirtualMachineClassInstanceSpec defines the desired state of VirtualMachineClassInstance.
               It is a composite of VirtualMachineClassSpec.
             properties:
+              bootOptions:
+                description: BootOptions describes class-supplied boot settings.
+                properties:
+                  bootDelay:
+                    description: |-
+                      BootDelay delays the boot sequence, in milliseconds.
+                      Bounds fit the VirtualMachine duration representation.
+                    properties:
+                      default:
+                        description: Default is the value supplied by the class.
+                        format: int64
+                        type: integer
+                      max:
+                        description: Max is the inclusive upper bound.
+                        format: int64
+                        type: integer
+                      min:
+                        description: Min is the inclusive lower bound.
+                        format: int64
+                        type: integer
+                    type: object
+                    x-kubernetes-validations:
+                    - message: boot delay min must be a nonnegative duration in milliseconds
+                      rule: '!has(self.min) || (self.min >= 0 && self.min <= 9223372036854)'
+                    - message: boot delay max must be a nonnegative duration in milliseconds
+                      rule: '!has(self.max) || (self.max >= 0 && self.max <= 9223372036854)'
+                    - message: boot delay default must be a nonnegative duration in
+                        milliseconds
+                      rule: '!has(self.default) || (self.default >= 0 && self.default
+                        <= 9223372036854)'
+                    - message: a bounded range requires a default
+                      rule: (!has(self.min) && !has(self.max)) || has(self.default)
+                    - message: default must not be below min
+                      rule: '!has(self.min) || !has(self.default) || self.default
+                        >= self.min'
+                    - message: default must not exceed max
+                      rule: '!has(self.max) || !has(self.default) || self.default
+                        <= self.max'
+                  bootRetry:
+                    description: BootRetry retries a failed boot after BootRetryDelay.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                  bootRetryDelay:
+                    description: |-
+                      BootRetryDelay delays another boot attempt, in milliseconds.
+                      Bounds fit the VirtualMachine duration representation.
+                    properties:
+                      default:
+                        description: Default is the value supplied by the class.
+                        format: int64
+                        type: integer
+                      max:
+                        description: Max is the inclusive upper bound.
+                        format: int64
+                        type: integer
+                      min:
+                        description: Min is the inclusive lower bound.
+                        format: int64
+                        type: integer
+                    type: object
+                    x-kubernetes-validations:
+                    - message: boot retry delay min must be a nonnegative duration
+                        in milliseconds
+                      rule: '!has(self.min) || (self.min >= 0 && self.min <= 9223372036854)'
+                    - message: boot retry delay max must be a nonnegative duration
+                        in milliseconds
+                      rule: '!has(self.max) || (self.max >= 0 && self.max <= 9223372036854)'
+                    - message: boot retry delay default must be a nonnegative duration
+                        in milliseconds
+                      rule: '!has(self.default) || (self.default >= 0 && self.default
+                        <= 9223372036854)'
+                    - message: a bounded range requires a default
+                      rule: (!has(self.min) && !has(self.max)) || has(self.default)
+                    - message: default must not be below min
+                      rule: '!has(self.min) || !has(self.default) || self.default
+                        >= self.min'
+                    - message: default must not exceed max
+                      rule: '!has(self.max) || !has(self.default) || self.default
+                        <= self.max'
+                  efiSecureBoot:
+                    description: EFISecureBoot enables signature checking by EFI firmware.
+                    properties:
+                      allowOverride:
+                        description: AllowOverride permits a different value below
+                          this class.
+                        type: boolean
+                      default:
+                        description: Default is the value supplied by the class.
+                        type: boolean
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a fixed boolean requires a default
+                      rule: '!has(self.allowOverride) || self.allowOverride || has(self.default)'
+                type: object
               configSpec:
                 description: |-
                   ConfigSpec describes additional configuration information for a

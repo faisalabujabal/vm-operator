@@ -4,8 +4,6 @@
 
 package v1alpha6
 
-import "fmt"
-
 func promoteClassBootOptions(spec *VirtualMachineClassSpec, doc *ClassConfigSpecDocument) error {
 	boot := &VirtualMachineClassBootOptions{}
 	spec.BootOptions = nil
@@ -42,7 +40,9 @@ func promoteClassBootOptions(spec *VirtualMachineClassSpec, doc *ClassConfigSpec
 		}
 		if present {
 			if value < 0 || value > maxClassBootDelayMilliseconds {
-				return fmt.Errorf("%s must fit a nonnegative VM duration", field.path)
+				// Older APIs accepted arbitrary raw presets. Keep values that
+				// cannot be represented by VM durations in the legacy document.
+				continue
 			}
 			*field.out = FixedClassLong(value)
 			if err := doc.Delete(field.path); err != nil {

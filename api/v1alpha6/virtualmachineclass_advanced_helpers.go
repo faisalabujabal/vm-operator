@@ -255,22 +255,28 @@ func classExtraConfigStringItem(raw json.RawMessage) (*vmopv1common.KeyValuePair
 	if err := json.Unmarshal(raw, &item); err != nil {
 		return nil, fmt.Errorf("decode class ExtraConfig item: %w", err)
 	}
+	return classExtraConfigStringFields(item), nil
+}
+
+// classExtraConfigStringFields returns nil for options with unsupported value
+// types or unknown metadata, so their original JSON remains in ConfigSpec.
+func classExtraConfigStringFields(item map[string]json.RawMessage) *vmopv1common.KeyValuePair {
 	var result vmopv1common.KeyValuePair
 	if json.Unmarshal(item["key"], &result.Key) != nil || !decodeClassExtraConfigString(item["value"], &result.Value) {
-		return nil, nil
+		return nil
 	}
 	if rawType, ok := item["_typeName"]; ok {
 		var name string
 		if json.Unmarshal(rawType, &name) != nil || name != "OptionValue" {
-			return nil, nil
+			return nil
 		}
 	}
 	for name := range item {
 		if name != "key" && name != "value" && name != "_typeName" {
-			return nil, nil
+			return nil
 		}
 	}
-	return &result, nil
+	return &result
 }
 
 func classNUMAMembers(value string) *[]int32 {

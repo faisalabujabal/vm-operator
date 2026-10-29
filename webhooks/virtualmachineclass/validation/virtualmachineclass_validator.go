@@ -72,6 +72,7 @@ func (v validator) ValidateCreate(ctx *pkgctx.WebhookRequestContext) admission.R
 	var fieldErrs field.ErrorList
 
 	fieldErrs = append(fieldErrs, v.validatePolicies(ctx, vmClass)...)
+	fieldErrs = append(fieldErrs, validateComputePolicies(vmClass)...)
 
 	validationErrs := make([]string, 0, len(fieldErrs))
 	for _, fieldErr := range fieldErrs {
@@ -86,13 +87,15 @@ func (v validator) ValidateDelete(*pkgctx.WebhookRequestContext) admission.Respo
 }
 
 func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.Response {
-	// TODO: ValidateUpdate does not call validatePolicies like ValidateCreate
-	// does, so policy validation is currently skipped on update. Tracked
-	// separately; not fixed here since it's a behavior change unrelated to
-	// this lint pass.
-	var fieldErrs field.ErrorList
+	vmClass, err := v.vmClassFromUnstructured(ctx.Obj)
+	if err != nil {
+		return webhook.Errored(http.StatusBadRequest, err)
+	}
+	// Keep the existing allocation-update behavior; validate the new compute
+	// enum domain on both create and update.
+	fieldErrs := validateComputePolicies(vmClass)
 	validationErrs := make([]string, 0, len(fieldErrs))
-	for _, fieldErr := range fieldErrs { //nolint:gosec // fieldErrs is always empty; ranging over it is a no-op, not an out-of-range access.
+	for _, fieldErr := range fieldErrs {
 		validationErrs = append(validationErrs, fieldErr.Error())
 	}
 
@@ -140,4 +143,22 @@ func rangeDefault(r *vmopv1.ResourceQuantityRange) resource.Quantity {
 
 func isRequestLimitValid(request, limit resource.Quantity) bool {
 	return request.IsZero() || limit.IsZero() || request.Cmp(limit) <= 0
+}
+
+func validateComputePolicies(class *vmopv1.VirtualMachineClass) field.ErrorList {
+	cpu := class.Spec.CPUAdvanced
+	if cpu == nil || cpu.LatencySensitivity == nil || cpu.LatencySensitivity.Allowed == nil {
+		return nil
+	}
+	var errors field.ErrorList
+	path := field.NewPath("spec", "cpuAdvanced", "latencySensitivity", "allowed")
+	valid := []string{"Normal", "High", "HighWithHyperthreading"}
+	for i, value := range *cpu.LatencySensitivity.Allowed {
+		switch vmopv1.VirtualMachineLatencySensitivityLevel(value) {
+		case vmopv1.VirtualMachineLatencySensitivityNormal, vmopv1.VirtualMachineLatencySensitivityHigh, vmopv1.VirtualMachineLatencySensitivityHighWithHyperthreading:
+		default:
+			errors = append(errors, field.NotSupported(path.Index(i), value, valid))
+		}
+	}
+	return errors
 }

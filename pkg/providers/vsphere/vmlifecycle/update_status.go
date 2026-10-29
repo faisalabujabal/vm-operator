@@ -250,6 +250,7 @@ func reconcileStatusHardware(
 			}
 
 			cpuStatus.HotAddEnabled = config.CpuHotAddEnabled
+			cpuStatus.HotRemoveEnabled = config.CpuHotRemoveEnabled
 			cpuStatus.IOMMUEnabled = config.Flags.VvtdEnabled
 			cpuStatus.NestedHardwareVirtualizationEnabled = config.NestedHVEnabled
 			cpuStatus.PerformanceCountersEnabled = config.VPMCEnabled

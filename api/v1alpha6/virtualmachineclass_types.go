@@ -102,6 +102,7 @@ type VirtualMachineClassResources struct {
 }
 
 // VirtualMachineClassSpec defines the desired state of VirtualMachineClass.
+// +kubebuilder:validation:XValidation:rule="!has(self.cpuAdvanced) || !has(self.cpuAdvanced.topology) || !has(self.cpuAdvanced.topology.vnumaNodeCount) || !has(self.cpuAdvanced.topology.vnumaNodeCount.default) || self.cpuAdvanced.topology.vnumaNodeCount.default <= 0 || (has(self.resources) && has(self.resources.size) && has(self.resources.size.cpu) && has(self.resources.size.cpu.default) && quantity(string(self.resources.size.cpu.default)).isInteger() && quantity(string(self.resources.size.cpu.default)).asInteger() > 0 && quantity(string(self.resources.size.cpu.default)).asInteger() % self.cpuAdvanced.topology.vnumaNodeCount.default == 0 && has(self.cpuAdvanced.topology.coresPerSocket) && has(self.cpuAdvanced.topology.coresPerSocket.default) && self.cpuAdvanced.topology.coresPerSocket.default > 0 && ((quantity(string(self.resources.size.cpu.default)).asInteger() / self.cpuAdvanced.topology.vnumaNodeCount.default) % self.cpuAdvanced.topology.coresPerSocket.default == 0 || self.cpuAdvanced.topology.coresPerSocket.default % (quantity(string(self.resources.size.cpu.default)).asInteger() / self.cpuAdvanced.topology.vnumaNodeCount.default) == 0))",message="a positive vnumaNodeCount default requires a divisible CPU size default"
 type VirtualMachineClassSpec struct {
 	// +optional
 
@@ -130,6 +131,13 @@ type VirtualMachineClassSpec struct {
 
 	// Resources describes guest size, reservations and limits.
 	Resources VirtualMachineClassResources `json:"resources,omitempty"`
+
+	// CPUAdvanced describes advanced CPU presets and policies.
+	// +optional
+	CPUAdvanced *VirtualMachineClassCPUAdvancedSpec `json:"cpuAdvanced,omitempty"`
+	// MemoryAdvanced describes advanced memory presets and policies.
+	// +optional
+	MemoryAdvanced *VirtualMachineClassMemoryAdvancedSpec `json:"memoryAdvanced,omitempty"`
 
 	// +optional
 

@@ -21,10 +21,10 @@ type ResourceDefaultsProvider interface {
 	GetVirtualMachineClassResources(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error)
 }
 
-// ApplyResourceDefaults materializes class resources on creation or a class
+// ApplyDefaults materializes class settings on creation or a class
 // change. Ordinary updates preserve the VM's selected configuration, even if
 // its class has since been edited. Removing the class also retains its values.
-func ApplyResourceDefaults(
+func ApplyDefaults(
 	ctx context.Context,
 	c ctrlclient.Client,
 	provider ResourceDefaultsProvider,
@@ -75,9 +75,19 @@ func ApplyResourceDefaults(
 	if err != nil {
 		return false, fmt.Errorf("resolve resources for class %s: %w", vm.Spec.ClassName, err)
 	}
-	if apiequality.Semantic.DeepEqual(vm.Spec.Resources, resources) {
-		return false, nil
+	// Resolve native raw presets and typed defaults through the same mapping
+	// used by conversion and the provider. Work on a copy so policy constraints
+	// and the original legacy document remain unchanged in the cached class.
+	effective := spec.DeepCopy()
+	effective.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(&spec)
+	if err != nil {
+		return false, fmt.Errorf("project defaults for class %s: %w", vm.Spec.ClassName, err)
 	}
+	if err := vmopv1.PromoteClassConfigSpec(effective); err != nil {
+		return false, fmt.Errorf("resolve defaults for class %s: %w", vm.Spec.ClassName, err)
+	}
+	before := vm.Spec.DeepCopy()
 	vm.Spec.Resources = resources.DeepCopy()
-	return true, nil
+	applyComputeDefaults(vm, effective, oldVM != nil)
+	return !apiequality.Semantic.DeepEqual(*before, vm.Spec), nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,9 +28,11 @@ import (
 	capiutil "sigs.k8s.io/cluster-api/util"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	vmopv1a5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	imgregv1a1 "github.com/vmware-tanzu/vm-operator/external/image-registry-operator/api/v1alpha1"
 	vspherepolv1 "github.com/vmware-tanzu/vm-operator/external/vsphere-policy/api/v1alpha1"
+	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 
 	"github.com/vmware-tanzu/vm-operator/test/e2e/framework"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/testbed"
@@ -182,6 +185,49 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 		hw := vmMO.Config.Hardware
 		Expect(hw.NumCPU).To(BeEquivalentTo(classCPU))
 		Expect(hw.MemoryMB).To(BeEquivalentTo(classMemory / 1024 / 1024))
+	})
+
+	It("Should preserve VMClass zone states and reject invalid governance scope", Label("core-functional", "experimental"), func() {
+		class := &vmopv1.VirtualMachineClass{
+			ObjectMeta: metav1.ObjectMeta{Namespace: input.WCPNamespaceName, Name: vmName + "-zone-schema"},
+			Spec: vmopv1.VirtualMachineClassSpec{
+				Resources: vmopv1.VirtualMachineClassResources{Size: vmopv1.VirtualMachineClassResourceSpec{
+					CPU:    vmopv1.FixedClassResource(resource.MustParse("2")),
+					Memory: vmopv1.FixedClassResource(resource.MustParse("2Gi")),
+				}},
+			},
+		}
+		Expect(svClusterClient.Create(ctx, class)).To(Succeed())
+		DeferCleanup(func(cleanupCtx context.Context) {
+			Expect(svClusterClient.Delete(cleanupCtx, class)).To(Succeed())
+		})
+		key := ctrlclient.ObjectKeyFromObject(class)
+		By("preserving omitted, empty and explicit zone lists through storage and older-client writes")
+		for _, zones := range []*[]string{nil, ptr.To([]string{}), ptr.To([]string{"zone-a", "zone-b"}), nil} {
+			Expect(svClusterClient.Get(ctx, key, class)).To(Succeed())
+			class.Spec.Zones = zones
+			class.Spec.Governs = &vmopv1.VirtualMachineClassGovernance{
+				Zones:       zones,
+				Enforcement: vmopv1.VirtualMachineClassEnforcementDeny,
+				ExistingVMs: vmopv1.VirtualMachineClassExistingVMsAllowOnViolation,
+			}
+			Expect(svClusterClient.Update(ctx, class)).To(Succeed())
+			legacy := &vmopv1a5.VirtualMachineClass{}
+			Expect(svClusterClient.Get(ctx, key, legacy)).To(Succeed())
+			legacy.Spec.Description = "zone schema older-client round trip"
+			Expect(svClusterClient.Update(ctx, legacy)).To(Succeed())
+			stored := &vmopv1.VirtualMachineClass{}
+			Expect(svClusterClient.Get(ctx, key, stored)).To(Succeed())
+			Expect(stored.Spec.Zones).To(Equal(zones))
+			Expect(stored.Spec.Governs).To(Equal(class.Spec.Governs))
+		}
+		By("rejecting governing zones outside explicitly empty availability")
+		Expect(svClusterClient.Get(ctx, key, class)).To(Succeed())
+		class.Spec.Zones = ptr.To([]string{})
+		class.Spec.Governs.Zones = ptr.To([]string{"zone-a"})
+		err := svClusterClient.Update(ctx, class)
+		Expect(apierrors.IsInvalid(err)).To(BeTrue(), "%v", err)
+		Expect(err.Error()).To(ContainSubstring("governs.zones must be a subset of zones"))
 	})
 
 	It("Should realize the v1alpha6 VMClass size defaults for a v1alpha6 VirtualMachine", Label("core-functional", "experimental"), func() {

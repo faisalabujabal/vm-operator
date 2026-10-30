@@ -342,6 +342,43 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(hub.Annotations).NotTo(HaveKey(utilconversion.AnnotationKey))
 			})
 
+			DescribeTable("preserves zone availability and governance through JSON and older writes",
+				func(zonesJSON string) {
+					hub := classWithPolicies()
+					Expect(json.Unmarshal([]byte(`{"zones":`+zonesJSON+`,"governs":{"zones":`+zonesJSON+`,"enforcement":"Deny","existingVMs":"DenyPowerOn"}}`), &hub.Spec)).To(Succeed())
+					spoke := version.newSpoke()
+					Expect(spoke.ConvertFrom(hub)).To(Succeed())
+					Expect(json.Unmarshal([]byte(`{"spec":{"description":"older writer"}}`), spoke)).To(Succeed())
+					data, err := json.Marshal(spoke)
+					Expect(err).NotTo(HaveOccurred())
+					stored := version.newSpoke()
+					Expect(json.Unmarshal(data, stored)).To(Succeed())
+					var restored vmopv1.VirtualMachineClass
+					Expect(stored.ConvertTo(&restored)).To(Succeed())
+					Expect(restored.Spec.Zones).To(Equal(hub.Spec.Zones))
+					Expect(restored.Spec.Governs).To(Equal(hub.Spec.Governs))
+					Expect(restored.Spec.Description).To(Equal("older writer"))
+					if restored.Spec.Zones != nil && len(*restored.Spec.Zones) > 0 {
+						(*restored.Spec.Zones)[0] = "changed"
+						Expect(*hub.Spec.Zones).To(Equal([]string{"zone-a", "zone-b"}))
+					}
+				},
+				Entry("omitted", "null"),
+				Entry("empty", "[]"),
+				Entry("explicit", `["zone-a","zone-b"]`),
+			)
+
+			It("clears zone and governance fields in a reused legacy conversion destination", func() {
+				spoke := version.newSpoke()
+				hub := classWithPolicies()
+				empty := []string{}
+				hub.Spec.Zones = &empty
+				hub.Spec.Governs = &vmopv1.VirtualMachineClassGovernance{Zones: &empty}
+				Expect(spoke.ConvertTo(hub)).To(Succeed())
+				Expect(hub.Spec.Zones).To(BeNil())
+				Expect(hub.Spec.Governs).To(BeNil())
+			})
+
 			It("copies metadata before preserving class policies", func() {
 				hub := classWithPolicies()
 				hub.Annotations = map[string]string{"user": "keep"}
@@ -518,6 +555,12 @@ func classWithPolicies() *vmopv1.VirtualMachineClass {
 	return &vmopv1.VirtualMachineClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "class", Namespace: "tenant"},
 		Spec: vmopv1.VirtualMachineClassSpec{
+			Zones: &[]string{"zone-a", "zone-b"},
+			Governs: &vmopv1.VirtualMachineClassGovernance{
+				Zones:       &[]string{},
+				Enforcement: vmopv1.VirtualMachineClassEnforcementDeny,
+				ExistingVMs: vmopv1.VirtualMachineClassExistingVMsAllowOnViolation,
+			},
 			Resources: vmopv1.VirtualMachineClassResources{Size: vmopv1.VirtualMachineClassResourceSpec{
 				CPU:    &vmopv1.ResourceQuantityRange{Min: &minimum, Max: &maximum, Default: &def},
 				Memory: &vmopv1.ResourceQuantityRange{Default: &memory},

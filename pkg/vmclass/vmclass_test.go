@@ -466,3 +466,23 @@ var _ = Describe("Device policy defaults", Label(testlabels.API), func() {
 		Expect(vmclass.ListDefaults(&vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &directDevices})).To(Equal(directDevices))
 	})
 })
+
+var _ = Describe("Class configuration hashes", Label(testlabels.API), func() {
+	It("ignores governance metadata but rotates for typed policy changes", func() {
+		ctx := pkgcfg.NewContextWithDefaultConfig()
+		spec := &vmopv1.VirtualMachineClassSpec{CPUAdvanced: &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}}
+		before, err := vmclass.ConfigurationHash(ctx, spec)
+		Expect(err).NotTo(HaveOccurred())
+		spec.Description = "updated"
+		spec.Zones = &[]string{"a"}
+		spec.Governs = &vmopv1.VirtualMachineClassGovernance{ExistingVMs: "DenyPowerOn"}
+		spec.ReservedSlots = 10 //nolint:staticcheck // Legacy metadata must not rotate configuration snapshots.
+		after, err := vmclass.ConfigurationHash(ctx, spec)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(after).To(Equal(before))
+		*spec.CPUAdvanced.HotAddEnabled.AllowOverride = true
+		after, err = vmclass.ConfigurationHash(ctx, spec)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(after).NotTo(Equal(before))
+	})
+})

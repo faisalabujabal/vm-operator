@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -150,5 +151,24 @@ var _ = Describe("Governance", Label(testlabels.API), func() {
 		Expect(governance.CheckClass(c, &ceiling)).To(HaveLen(1))
 		(*ceiling.Hardware.Devices.VGPUDevices.Allowed)[0].ProfileName.Glob = ptr.To("*")
 		Expect(governance.CheckClass(c, &ceiling)).To(HaveLen(2))
+	})
+})
+
+var _ = Describe("Class governance status", Label(testlabels.API), func() {
+	It("preserves other conditions and reports conflicting governors deterministically", func() {
+		class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "tenant", Generation: 4}, Spec: vmopv1.VirtualMachineClassSpec{Governs: &vmopv1.VirtualMachineClassGovernance{}}}
+		class.Status.Zones = []vmopv1.VirtualMachineClassZoneStatus{{Name: "a", Conditions: []metav1.Condition{{Type: "HardwareCompatible", Status: metav1.ConditionTrue, Reason: "Supported"}}}}
+		other := class.DeepCopy()
+		other.Name = "b"
+		status := governance.ClassStatus(class, []vmopv1.VirtualMachineClass{*class, *other}, []string{"b", "a", "a"})
+		Expect(status.Zones).To(HaveLen(2))
+		Expect(status.Zones[0].Name).To(Equal("a"))
+		Expect(apimeta.FindStatusCondition(status.Zones[0].Conditions, "HardwareCompatible").Status).To(Equal(metav1.ConditionTrue))
+		Expect(apimeta.FindStatusCondition(status.Zones[0].Conditions, vmopv1.VirtualMachineClassConditionWithinGovernance).Reason).To(Equal(vmopv1.VirtualMachineClassGovernanceConflictReason))
+		Expect(class.Status.Zones[0].Conditions).To(HaveLen(1))
+		status = governance.ClassStatus(class, []vmopv1.VirtualMachineClass{*class}, []string{"a"})
+		Expect(apimeta.FindStatusCondition(status.Zones[0].Conditions, vmopv1.VirtualMachineClassConditionGoverning).Status).To(Equal(metav1.ConditionTrue))
+		class.Spec.Zones = &[]string{}
+		Expect(governance.ClassStatus(class, nil, []string{"a"}).Zones).To(BeEmpty())
 	})
 })

@@ -148,10 +148,10 @@ Blocked on a vSphere and govmomi release with the vmx-23 fields. Not a gate for 
 
 ### Story — Class governance status (vmop-4323)
 
-- [ ] T203 [US2] [vmop-4323] Class controller: per-zone `WithinGovernance` and `Governing`, re-checked on every reconcile — `controllers/virtualmachineclass`
+- [x] T203 [US2] [vmop-4323] Class controller: per-zone `WithinGovernance` and `Governing`, re-checked on every reconcile — `controllers/virtualmachineclass`
 - [ ] T204 [US2] [vmop-4323] Zone mirror controller: `Zone.status.governingClasses` from classes; optimistic-lock patch, skip unchanged writes; never read by governance. Depends on T109 — `controllers/infra/zone`
-- [ ] T205 [US4] [vmop-4323] Re-base the `ClassInstance` hash onto typed fields — `controllers/virtualmachineclass`
-- [ ] T205a [US2] [vmop-4323] E2E: narrowing a governing class marks a selectable class `WithinGovernance=False`
+- [x] T205 [US4] [vmop-4323] Re-base the `ClassInstance` hash onto typed fields — `controllers/virtualmachineclass`
+- [x] T205a [US2] [vmop-4323] E2E: narrowing a governing class marks a selectable class `WithinGovernance=False`
 
 ---
 
@@ -288,3 +288,5 @@ Dependency tasks; vm-operator does not implement them. What vm-operator assumes 
 
 - [x] T103g4 [US1/US4/US9] [vmop-4315] Add `advanced` boolean, NUMA set and ExtraConfig list policies, all-version conversion and per-field round-trip restoration, class-supplied admission defaults, provider projection, instance hashing and generated schema (`api/v1alpha6/virtualmachineclass_advanced_types.go`, `api/v1alpha6/virtualmachineclass_advanced_helpers.go`, `pkg/vmclass/advanced.go`, `controllers/virtualmachineclass/virtualmachineclass_controller.go`)
 - [x] T103g5 [US1/US4/US9] [vmop-4315] Run advanced conversion, admission, provider and CEL checks; compile new-VM and staged-upgrade E2E assertions (`api/test/v1alpha5/conversion_test.go`, `pkg/vmclass/vmclass_test.go`, `webhooks/virtualmachineclass/validation/virtualmachineclass_validator_intg_test.go`, `test/e2e/vmservice/vmservice/virtualmachine/virtualmachinelcm.go`, `test/e2e/vmservice/vmservice/virtualmachine/vmclass_schema_upgrade.go`). Live E2E execution is deferred.
+
+T205a is implemented as experimental live-controller E2E in an isolated Kubernetes namespace, using explicit test zone availability. It is written and compile checked; live Supervisor execution remains pending. T205 builds on typed hashes introduced by the schema drafts, centralizes them in `pkg/vmclass`, and verifies that governance metadata does not rotate VM configuration snapshots.

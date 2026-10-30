@@ -6,29 +6,35 @@ package virtualmachineclass
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
-	"github.com/cespare/xxhash/v2"
 	"github.com/go-logr/logr"
-	vimtypes "github.com/vmware/govmomi/vim25/types"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	topologyv1 "github.com/vmware-tanzu/vm-operator/external/tanzu-topology/api/v1alpha1"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	pkgconst "github.com/vmware-tanzu/vm-operator/pkg/constants"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
+	"github.com/vmware-tanzu/vm-operator/pkg/governance"
 	pkglog "github.com/vmware-tanzu/vm-operator/pkg/log"
 	"github.com/vmware-tanzu/vm-operator/pkg/patch"
-	"github.com/vmware-tanzu/vm-operator/pkg/providers/vsphere"
 	"github.com/vmware-tanzu/vm-operator/pkg/record"
+	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 )
 
 // AddToManager adds this package's controller to the provided manager.
@@ -49,6 +55,12 @@ func AddToManager(ctx *pkgctx.ControllerManagerContext, mgr manager.Manager) err
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(controlledType).
+		Watches(controlledType, handler.EnqueueRequestsFromMapFunc(r.classesForDependency), builder.WithPredicates(predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() || !e.ObjectOld.GetDeletionTimestamp().Equal(e.ObjectNew.GetDeletionTimestamp())
+			},
+		})).
+		Watches(&topologyv1.Zone{}, handler.EnqueueRequestsFromMapFunc(r.classesForDependency), builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: ctx.GetMaxConcurrentReconciles(controllerNameShort, 1),
 			LogConstructor:          pkglog.ControllerLogConstructor(controllerNameShort, controlledType, mgr.GetScheme()),
@@ -119,10 +131,29 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
-func (r *Reconciler) ReconcileNormal(vmClassCtx *pkgctx.VirtualMachineClassContext) error {
+func (r *Reconciler) ReconcileNormal(vmClassCtx *pkgctx.VirtualMachineClassContext) (reterr error) {
+	if pkgcfg.FromContext(vmClassCtx).Features.VMServiceClasslessVM {
+		defer func() {
+			class := vmClassCtx.VMClass
+			condition := metav1.Condition{Type: vmopv1.VirtualMachineClassConditionReady, Status: metav1.ConditionTrue,
+				ObservedGeneration: class.Generation, Reason: vmopv1.VirtualMachineClassGovernanceSatisfiedReason, Message: "Class reconciliation completed"}
+			if reterr != nil {
+				condition.Status = metav1.ConditionFalse
+				condition.Reason = vmopv1.VirtualMachineClassReconcileErrorReason
+				condition.Message = reterr.Error()
+			} else {
+				class.Status.ObservedGeneration = class.Generation
+			}
+			apimeta.SetStatusCondition(&class.Status.Conditions, condition)
+		}()
+		if err := r.reconcileGovernance(vmClassCtx); err != nil {
+			return err
+		}
+	}
+
 	// Reconcile VM class instances if the Supervisor supports it.
 	if pkgcfg.FromContext(vmClassCtx).Features.ImmutableClasses {
 		vmClassCtx.Logger.Info("Reconciling VirtualMachineClassInstances for VM class")
@@ -132,49 +163,6 @@ func (r *Reconciler) ReconcileNormal(vmClassCtx *pkgctx.VirtualMachineClassConte
 	}
 
 	return nil
-}
-
-// vmClassHash returns a hash of the VM Class configuration that determines the
-// VM instance configuration.
-func vmClassHash(ctx *pkgctx.VirtualMachineClassContext, class *vmopv1.VirtualMachineClass) (string, error) {
-	var configSpec vimtypes.VirtualMachineConfigSpec
-	if len(class.Spec.ConfigSpec) > 0 {
-		var err error
-		configSpec, err = vsphere.GetVMClassConfigSpec(ctx, class.Spec.ConfigSpec)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	data := struct {
-		ConfigSpec          vimtypes.VirtualMachineConfigSpec             `json:"configSpec"`
-		Hardware            vmopv1.VirtualMachineClassHardware            `json:"hardware"`
-		Resources           vmopv1.VirtualMachineClassResources           `json:"resources"`
-		Advanced            *vmopv1.VirtualMachineClassAdvancedSpec       `json:"advanced,omitempty"`
-		ReservedProfileName *vmopv1.EnumPolicy                            `json:"reservedProfileName,omitempty"`
-		CPUAdvanced         *vmopv1.VirtualMachineClassCPUAdvancedSpec    `json:"cpuAdvanced,omitempty"`
-		MemoryAdvanced      *vmopv1.VirtualMachineClassMemoryAdvancedSpec `json:"memoryAdvanced,omitempty"`
-		BootOptions         *vmopv1.VirtualMachineClassBootOptions        `json:"bootOptions,omitempty"`
-	}{
-		configSpec,
-		class.Spec.Hardware,
-		class.Spec.Resources,
-		class.Spec.Advanced,
-		class.Spec.ReservedProfileName,
-		class.Spec.CPUAdvanced,
-		class.Spec.MemoryAdvanced,
-		class.Spec.BootOptions,
-	}
-
-	b, err := json.Marshal(data)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal VM Class config to JSON: %w", err)
-	}
-	h := xxhash.New()
-	if _, err := h.Write(b); err != nil {
-		return "", fmt.Errorf("failed to write VM Class config to hash: %w", err)
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 // reconcileInstance creates a VirtualMachineClassInstance for the
@@ -193,7 +181,7 @@ func vmClassHash(ctx *pkgctx.VirtualMachineClassContext, class *vmopv1.VirtualMa
 //     instances are marked inactive.
 //   - Owner reference to the owning class.
 func (r *Reconciler) reconcileInstance(ctx *pkgctx.VirtualMachineClassContext) error {
-	hash, err := vmClassHash(ctx, ctx.VMClass)
+	hash, err := vmclass.ConfigurationHash(ctx, &ctx.VMClass.Spec)
 	if err != nil {
 		ctx.Logger.Error(err, "Failed to calculate the hash value required to create VM class instance")
 		return err
@@ -289,5 +277,51 @@ func (r *Reconciler) reconcileInstance(ctx *pkgctx.VirtualMachineClassContext) e
 		}
 	}
 
+	return nil
+}
+
+// classesForDependency invalidates class status on class and Zone changes.
+// Periodic reconciliation also recovers from failed list calls and capability changes.
+func (r *Reconciler) classesForDependency(ctx context.Context, obj client.Object) []reconcile.Request {
+	namespaces := []string{obj.GetNamespace()}
+	if _, ok := obj.(*topologyv1.Zone); ok {
+		if system := pkgcfg.FromContext(r.Context).PodNamespace; system != "" && system != obj.GetNamespace() {
+			namespaces = append(namespaces, system)
+		}
+	}
+	var requests []reconcile.Request
+	for _, namespace := range namespaces {
+		var classes vmopv1.VirtualMachineClassList
+		if err := r.List(ctx, &classes, client.InNamespace(namespace)); err != nil {
+			r.Logger.Error(err, "list classes for governance dependency")
+			continue
+		}
+		for i := range classes.Items {
+			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&classes.Items[i])})
+		}
+	}
+	return requests
+}
+
+func (r *Reconciler) reconcileGovernance(ctx *pkgctx.VirtualMachineClassContext) error {
+	var classes vmopv1.VirtualMachineClassList
+	if err := r.List(ctx, &classes, client.InNamespace(ctx.VMClass.Namespace)); err != nil {
+		return fmt.Errorf("list class governance: %w", err)
+	}
+	var zones topologyv1.ZoneList
+	options := []client.ListOption{client.InNamespace(ctx.VMClass.Namespace)}
+	if ctx.VMClass.Namespace == pkgcfg.FromContext(ctx).PodNamespace {
+		options = nil
+	}
+	if err := r.List(ctx, &zones, options...); err != nil {
+		return fmt.Errorf("list class zones: %w", err)
+	}
+	names := make([]string, 0, len(zones.Items))
+	for _, z := range zones.Items {
+		if z.DeletionTimestamp.IsZero() {
+			names = append(names, z.Name)
+		}
+	}
+	ctx.VMClass.Status = governance.ClassStatus(ctx.VMClass, classes.Items, names)
 	return nil
 }

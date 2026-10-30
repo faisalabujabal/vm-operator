@@ -1906,6 +1906,8 @@ func autoConvert_v1alpha2_VirtualMachineClassSpec_To_v1alpha6_VirtualMachineClas
 }
 
 func autoConvert_v1alpha6_VirtualMachineClassSpec_To_v1alpha2_VirtualMachineClassSpec(in *v1alpha6.VirtualMachineClassSpec, out *VirtualMachineClassSpec, s conversion.Scope) error {
+	// WARNING: in.Zones requires manual conversion: does not exist in peer-type
+	// WARNING: in.Governs requires manual conversion: does not exist in peer-type
 	out.ControllerName = in.ControllerName
 	if err := Convert_v1alpha6_VirtualMachineClassHardware_To_v1alpha2_VirtualMachineClassHardware(&in.Hardware, &out.Hardware, s); err != nil {
 		return err

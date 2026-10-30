@@ -115,7 +115,20 @@ type VirtualMachineClassResources struct {
 
 // VirtualMachineClassSpec defines the desired state of VirtualMachineClass.
 // +kubebuilder:validation:XValidation:rule="!has(self.cpuAdvanced) || !has(self.cpuAdvanced.topology) || !has(self.cpuAdvanced.topology.vnumaNodeCount) || !has(self.cpuAdvanced.topology.vnumaNodeCount.default) || self.cpuAdvanced.topology.vnumaNodeCount.default <= 0 || (has(self.resources) && has(self.resources.size) && has(self.resources.size.cpu) && has(self.resources.size.cpu.default) && quantity(string(self.resources.size.cpu.default)).isInteger() && quantity(string(self.resources.size.cpu.default)).asInteger() > 0 && quantity(string(self.resources.size.cpu.default)).asInteger() % self.cpuAdvanced.topology.vnumaNodeCount.default == 0 && has(self.cpuAdvanced.topology.coresPerSocket) && has(self.cpuAdvanced.topology.coresPerSocket.default) && self.cpuAdvanced.topology.coresPerSocket.default > 0 && ((quantity(string(self.resources.size.cpu.default)).asInteger() / self.cpuAdvanced.topology.vnumaNodeCount.default) % self.cpuAdvanced.topology.coresPerSocket.default == 0 || self.cpuAdvanced.topology.coresPerSocket.default % (quantity(string(self.resources.size.cpu.default)).asInteger() / self.cpuAdvanced.topology.vnumaNodeCount.default) == 0))",message="a positive vnumaNodeCount default requires a divisible CPU size default"
+// +kubebuilder:validation:XValidation:rule="!has(self.zones) || !has(self.governs) || !has(self.governs.zones) || self.zones == self.zones + self.governs.zones",message="governs.zones must be a subset of zones"
 type VirtualMachineClassSpec struct {
+	// Zones describes where this class is available. Omission includes every
+	// zone in the namespace, including zones added later. An empty list makes
+	// the class unavailable in every zone.
+	// +optional
+	// +listType=set
+	Zones *[]string `json:"zones,omitempty"`
+
+	// Governs describes the zones and enforcement policies this class governs.
+	// Omission means the class does not govern any zone.
+	// +optional
+	Governs *VirtualMachineClassGovernance `json:"governs,omitempty"`
+
 	// +optional
 
 	// ControllerName describes the name of the controller responsible for
@@ -196,6 +209,46 @@ type VirtualMachineClassSpec struct {
 	// Deprecated: retained for compatibility with older namespace writers.
 	ReservedSlots int32 `json:"reservedSlots,omitempty"`
 }
+
+// VirtualMachineClassGovernance describes a class's governance scope and policy.
+type VirtualMachineClassGovernance struct {
+	// Zones limits governance to these zones. Omission inherits the class's
+	// available zones. An empty list means this class governs no zones.
+	// When both lists are specified, these zones must be a subset of spec.zones.
+	// +optional
+	// +listType=set
+	Zones *[]string `json:"zones,omitempty"`
+
+	// Enforcement controls admission of configurations outside this class's
+	// constraints. The governing-class mutating webhook supplies Deny when unset.
+	// +optional
+	Enforcement VirtualMachineClassEnforcement `json:"enforcement,omitempty"`
+
+	// ExistingVMs controls how violations affect existing VMs. The class
+	// validating webhook requires this on a governing class without a parent.
+	// +optional
+	ExistingVMs VirtualMachineClassExistingVMs `json:"existingVMs,omitempty"`
+}
+
+// VirtualMachineClassEnforcement describes governance admission enforcement.
+// +kubebuilder:validation:Enum=Deny
+type VirtualMachineClassEnforcement string
+
+const (
+	// VirtualMachineClassEnforcementDeny rejects configurations outside governance.
+	VirtualMachineClassEnforcementDeny VirtualMachineClassEnforcement = "Deny"
+)
+
+// VirtualMachineClassExistingVMs describes the policy for existing VM violations.
+// +kubebuilder:validation:Enum=AllowOnViolation;DenyPowerOn
+type VirtualMachineClassExistingVMs string
+
+const (
+	// VirtualMachineClassExistingVMsAllowOnViolation permits power-on despite violations.
+	VirtualMachineClassExistingVMsAllowOnViolation VirtualMachineClassExistingVMs = "AllowOnViolation"
+	// VirtualMachineClassExistingVMsDenyPowerOn withholds power-on on violations.
+	VirtualMachineClassExistingVMsDenyPowerOn VirtualMachineClassExistingVMs = "DenyPowerOn"
+)
 
 // VirtualMachineClassStatus defines the observed state of VirtualMachineClass.
 type VirtualMachineClassStatus struct {

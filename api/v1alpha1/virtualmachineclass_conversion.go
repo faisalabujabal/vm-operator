@@ -57,6 +57,9 @@ func Convert_v1alpha6_VirtualMachineClass_To_v1alpha1_VirtualMachineClass(in *vm
 
 // Convert_v1alpha1_VirtualMachineClassSpec_To_v1alpha6_VirtualMachineClassSpec converts legacy scalar presets to fixed policies.
 func Convert_v1alpha1_VirtualMachineClassSpec_To_v1alpha6_VirtualMachineClassSpec(in *VirtualMachineClassSpec, out *vmopv1.VirtualMachineClassSpec, s apiconversion.Scope) error {
+	// Clear hub-only fields when callers reuse a conversion destination.
+	out.Zones = nil
+	out.Governs = nil
 	if err := autoConvert_v1alpha1_VirtualMachineClassSpec_To_v1alpha6_VirtualMachineClassSpec(in, out, s); err != nil {
 		return err
 	}

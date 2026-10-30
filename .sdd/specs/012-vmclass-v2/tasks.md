@@ -74,6 +74,12 @@ The resource migration (A1) targets spec PR #2067. The device policy (A2) and cl
 - [ ] T103i [US10] [vmop-4315] PR E: VM profile selection, mutation and existing-VM backfill, provider consumption and removal, and category tests. Includes applicable portions of T108, T110 and T409
 - [ ] T103j [US1/US4] [vmop-4315] PR F: settled remaining hardware presets and category tests; CPU masks remain top-class presets; T011 remains deferred
 
+### Zone and governance schema progress (vmop-4315)
+
+- [x] T103r [US2/US9] [vmop-4315] Add zone availability and governance scope/policy schema, set-list subset CEL, all-version annotation round trips and generated class/class-instance schemas. Covers the zone/governance portion of T103/T104 and the local storage/conversion portion of T106a; provider namespace-copy validation remains separate
+- [x] T103s [US2/US9] [vmop-4315] Add conversion, reused-destination and API-server create/update/storage tests, plus an experimental installed-cluster E2E scenario for zone-state preservation through an older writer and subset rejection
+- [ ] T103t [US2/US9] [vmop-4315] Execute the zone/governance schema E2E on a candidate Supervisor; the scenario is written and compiled, not live-validated
+
 ### Story — VM Class v1alpha6 schema (vmop-4315)
 
 - [x] T102 [US1/US9] [vmop-4315] Wire the round-trip annotation into the `VirtualMachineClass` conversion functions before the rest of the schema lands — `api/utilconversion`, `api/v1alpha*/virtualmachineclass_conversion.go`. Shared hub helpers centralize metadata isolation, annotation save/restore and policy projection for every spoke and class instance

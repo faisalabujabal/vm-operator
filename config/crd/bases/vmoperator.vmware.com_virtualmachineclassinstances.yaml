@@ -1042,6 +1042,36 @@ spec:
                   is not related to virtual hardware or infrastructure policy. This field
                   is used to address remaining specs about this VirtualMachineClass.
                 type: string
+              governs:
+                description: |-
+                  Governs describes the zones and enforcement policies this class governs.
+                  Omission means the class does not govern any zone.
+                properties:
+                  enforcement:
+                    description: |-
+                      Enforcement controls admission of configurations outside this class's
+                      constraints. The governing-class mutating webhook supplies Deny when unset.
+                    enum:
+                    - Deny
+                    type: string
+                  existingVMs:
+                    description: |-
+                      ExistingVMs controls how violations affect existing VMs. The class
+                      validating webhook requires this on a governing class without a parent.
+                    enum:
+                    - AllowOnViolation
+                    - DenyPowerOn
+                    type: string
+                  zones:
+                    description: |-
+                      Zones limits governance to these zones. Omission inherits the class's
+                      available zones. An empty list means this class governs no zones.
+                      When both lists are specified, these zones must be a subset of spec.zones.
+                    items:
+                      type: string
+                    type: array
+                    x-kubernetes-list-type: set
+                type: object
               hardware:
                 description: |-
                   Hardware describes the configuration of the VirtualMachineClass
@@ -1597,6 +1627,15 @@ spec:
                         && quantity(string(self.cpu.default)).asInteger() >= 0 &&
                         quantity(string(self.cpu.default)).asInteger() <= 2147483647)'
                 type: object
+              zones:
+                description: |-
+                  Zones describes where this class is available. Omission includes every
+                  zone in the namespace, including zones added later. An empty list makes
+                  the class unavailable in every zone.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
             type: object
             x-kubernetes-validations:
             - message: a positive vnumaNodeCount default requires a divisible CPU
@@ -1614,6 +1653,9 @@ spec:
                 / self.cpuAdvanced.topology.vnumaNodeCount.default) % self.cpuAdvanced.topology.coresPerSocket.default
                 == 0 || self.cpuAdvanced.topology.coresPerSocket.default % (quantity(string(self.resources.size.cpu.default)).asInteger()
                 / self.cpuAdvanced.topology.vnumaNodeCount.default) == 0))'
+            - message: governs.zones must be a subset of zones
+              rule: '!has(self.zones) || !has(self.governs) || !has(self.governs.zones)
+                || self.zones == self.zones + self.governs.zones'
           status:
             description: VirtualMachineClassInstanceStatus defines the observed state
               of VirtualMachineClassInstance.

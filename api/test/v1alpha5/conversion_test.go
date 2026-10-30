@@ -8,25 +8,23 @@ import (
 	"encoding/json"
 	"fmt"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
+	ctrlconversion "sigs.k8s.io/controller-runtime/pkg/conversion"
+	"sigs.k8s.io/randfill"
+
+	"github.com/vmware-tanzu/vm-operator/api/test/utilconversion/fuzztests"
 	"github.com/vmware-tanzu/vm-operator/api/utilconversion"
 	vmopv1a1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
 	vmopv1a2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
 	vmopv1a3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
 	vmopv1a4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrlconversion "sigs.k8s.io/controller-runtime/pkg/conversion"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-
-	"k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
-	"k8s.io/apimachinery/pkg/runtime"
-	runtimeserializer "k8s.io/apimachinery/pkg/runtime/serializer"
-	"sigs.k8s.io/randfill"
-
-	"github.com/vmware-tanzu/vm-operator/api/test/utilconversion/fuzztests"
 	vmopv1a5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	"github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
@@ -1128,6 +1126,46 @@ var _ = Describe("Indexed class ExtraConfig overlay", Label("api"), func() {
 			default:
 				Expect(item.Key).To(Equal("numa.vcpu.preferHT"))
 				Expect(item.Value.Value).To(Equal("FALSE"))
+			}
+		}
+	})
+})
+
+var _ = Describe("Class governance conversion", Label("api"), func() {
+	It("clears hub-only governance fields when reusing a destination without preserved data", func() {
+		for _, spoke := range []interface {
+			ConvertTo(ctrlconversion.Hub) error
+		}{
+			&vmopv1a1.VirtualMachineClass{}, &vmopv1a2.VirtualMachineClass{}, &vmopv1a3.VirtualMachineClass{}, &vmopv1a4.VirtualMachineClass{}, &vmopv1a5.VirtualMachineClass{},
+		} {
+			hub := &vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{Zones: &[]string{"old"}, Governs: &vmopv1.VirtualMachineClassGovernance{}}, Status: vmopv1.VirtualMachineClassStatus{ObservedGeneration: 42}}
+			Expect(spoke.ConvertTo(hub)).To(Succeed())
+			Expect(hub.Spec.Zones).To(BeNil())
+			Expect(hub.Spec.Governs).To(BeNil())
+			Expect(hub.Status).To(Equal(vmopv1.VirtualMachineClassStatus{}))
+		}
+	})
+
+	It("preserves zone selection states, governance and status through every older API", func() {
+		for _, zones := range []*[]string{nil, {}, {"zone-a", "zone-b"}} {
+			for _, governingZones := range []*[]string{nil, {}, {"zone-a"}} {
+				for _, spoke := range []interface {
+					ConvertFrom(ctrlconversion.Hub) error
+					ConvertTo(ctrlconversion.Hub) error
+				}{&vmopv1a1.VirtualMachineClass{}, &vmopv1a2.VirtualMachineClass{}, &vmopv1a3.VirtualMachineClass{}, &vmopv1a4.VirtualMachineClass{}, &vmopv1a5.VirtualMachineClass{}} {
+					hub := classWithPolicies()
+					hub.Spec.Zones = zones
+					hub.Spec.Governs = &vmopv1.VirtualMachineClassGovernance{Zones: governingZones, ExistingVMs: "AllowOnViolation", Enforcement: "Deny"}
+					hub.Status = vmopv1.VirtualMachineClassStatus{ObservedGeneration: 3, Zones: []vmopv1.VirtualMachineClassZoneStatus{{Name: "zone-a", Conditions: []metav1.Condition{{Type: "Governing", Status: metav1.ConditionTrue, Reason: "GovernanceSatisfied"}}}}}
+					before := hub.DeepCopy()
+					Expect(spoke.ConvertFrom(hub)).To(Succeed())
+					var restored vmopv1.VirtualMachineClass
+					Expect(spoke.ConvertTo(&restored)).To(Succeed())
+					Expect(restored.Spec).To(Equal(hub.Spec))
+					Expect(restored.Status).To(Equal(hub.Status))
+					restored.Spec.Governs.ExistingVMs = "DenyPowerOn"
+					Expect(hub).To(Equal(before))
+				}
 			}
 		}
 	})

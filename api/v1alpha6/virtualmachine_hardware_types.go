@@ -415,11 +415,6 @@ type VirtualMachineVNUMATopologyStatus struct {
 type VirtualMachineCPUAllocationStatus struct {
 	// +optional
 
-	// HotRemoveEnabled reports whether CPU hot-remove is enabled.
-	HotRemoveEnabled *bool `json:"hotRemoveEnabled,omitempty"`
-
-	// +optional
-
 	// Total describes the observed number of processors.
 	Total int32 `json:"total,omitempty"`
 

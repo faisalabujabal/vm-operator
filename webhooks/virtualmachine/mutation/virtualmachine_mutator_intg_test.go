@@ -86,13 +86,13 @@ func intgTestsMutating() {
 
 	Context("class resource defaults", func() {
 		BeforeEach(func() {
-			pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = true })
+			pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
 			admissionVMProvider.GetVirtualMachineClassResourcesFn = func(_ context.Context, spec vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
 				return &vmopv1.VirtualMachineResourcesSpec{Size: &vmopv1.VirtualMachineResourceQuantity{CPU: spec.Resources.Size.CPU.Default, Memory: spec.Resources.Size.Memory.Default}}, nil
 			}
 		})
 		AfterEach(func() {
-			pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = false })
+			pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
 			admissionVMProvider.GetVirtualMachineClassResourcesFn = nil
 		})
 		It("admits a guaranteed memory lock without a duplicate explicit memory request", func() {
@@ -116,6 +116,88 @@ func intgTestsMutating() {
 			Expect(*actual.Spec.MemoryAdvanced.ReservationLockedToMax).To(BeTrue())
 			Expect(actual.Spec.Resources.Requests.Memory).To(BeNil())
 		})
+		DescribeTable("leaves class secure boot firmware implicit during mutation",
+			func(raw bool, imageFirmware, rawFirmware string, explicit vmopv1.VirtualMachineBootOptionsFirmwareType, missing bool) {
+				testCtx := ctx
+				img.Status.Firmware = imageFirmware
+				Expect(ctx.Client.Status().Update(ctx, img)).To(Succeed())
+				class := builder.DummyVirtualMachineClassGenName()
+				class.Namespace = ctx.Namespace
+				class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{EFISecureBoot: vmopv1.FixedClassBool(true)}
+				if rawFirmware != "" {
+					class.Spec.ConfigSpec = []byte(`{"firmware":"` + rawFirmware + `"}`)
+				}
+				if raw {
+					var err error
+					class.Spec.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(&class.Spec)
+					Expect(err).NotTo(HaveOccurred())
+					class.Spec.BootOptions = nil
+				}
+				Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+				DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, class)).To(Succeed()) })
+				ctx.vm.Spec.ClassName = class.Name
+				ctx.vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{Firmware: explicit}
+				if missing {
+					ctx.vm.Spec.ImageName = "missing-image"
+				}
+				err := ctx.Client.Create(ctx, ctx.vm)
+				if missing {
+					Expect(err).To(HaveOccurred())
+					return
+				}
+				Expect(err).NotTo(HaveOccurred())
+				DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, testCtx.vm)).To(Succeed()) })
+				actual := &vmopv1.VirtualMachine{}
+				Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(ctx.vm), actual)).To(Succeed())
+				Expect(actual.Spec.BootOptions.Firmware).To(Equal(explicit))
+				Expect(actual.Spec.BootOptions.EFISecureBoot).To(Equal(vmopv1.VirtualMachineBootOptionsEFISecureBootEnabled))
+			},
+			Entry("typed secure boot with image EFI", false, "efi", "", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false),
+			Entry("raw secure boot with image EFI", true, "efi", "", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false),
+			Entry("raw EFI fallback for an image without firmware", true, "", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false),
+			Entry("image BIOS overrides raw EFI", true, "bios", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), false),
+			Entry("explicit VM BIOS is preserved", false, "efi", "efi", vmopv1.VirtualMachineBootOptionsFirmwareTypeBIOS, false),
+			Entry("a missing image cannot establish EFI", true, "", "efi", vmopv1.VirtualMachineBootOptionsFirmwareType(""), true),
+		)
+		DescribeTable("admits inactive class retry delays without an invalid VM delay",
+			func(raw, retrySet, tenantEnabled bool) {
+				testCtx := ctx
+				class := builder.DummyVirtualMachineClassGenName()
+				class.Namespace = ctx.Namespace
+				class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootRetryDelay: vmopv1.FixedClassLong(1500)}
+				if retrySet {
+					class.Spec.BootOptions.BootRetry = vmopv1.FixedClassBool(false)
+				}
+				if raw {
+					var err error
+					class.Spec.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(&class.Spec)
+					Expect(err).NotTo(HaveOccurred())
+					class.Spec.BootOptions = nil
+				}
+				Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+				DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, class)).To(Succeed()) })
+				ctx.vm.Spec.ClassName = class.Name
+				if tenantEnabled {
+					ctx.vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootRetry: vmopv1.VirtualMachineBootOptionsBootRetryEnabled}
+				}
+				Expect(ctx.Client.Create(ctx, ctx.vm)).To(Succeed())
+				DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, testCtx.vm)).To(Succeed()) })
+				actual := &vmopv1.VirtualMachine{}
+				Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(ctx.vm), actual)).To(Succeed())
+				if tenantEnabled && !retrySet {
+					Expect(actual.Spec.BootOptions.BootRetry).To(Equal(vmopv1.VirtualMachineBootOptionsBootRetryEnabled))
+					Expect(actual.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
+				} else if actual.Spec.BootOptions != nil {
+					Expect(actual.Spec.BootOptions.BootRetryDelay).To(BeNil())
+				}
+			},
+			Entry("typed disabled", false, true, false),
+			Entry("raw disabled", true, true, false),
+			Entry("typed omitted", false, false, false),
+			Entry("raw omitted", true, false, false),
+			Entry("typed omitted preserves tenant enabled", false, false, true),
+			Entry("raw omitted preserves tenant enabled", true, false, true),
+		)
 		It("persists class-owned size through API-server admission", func() {
 			testCtx := ctx
 			class := builder.DummyVirtualMachineClassGenName()
@@ -124,6 +206,10 @@ func intgTestsMutating() {
 			class.Spec.MemoryAdvanced = &vmopv1.VirtualMachineClassMemoryAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Default: resource.NewQuantity(2, resource.DecimalSI)}
 			class.Spec.Resources.Size.Memory = &vmopv1.ResourceQuantityRange{Default: resource.NewQuantity(2*1024*1024*1024, resource.BinarySI)}
+			class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{
+				BootDelay: vmopv1.FixedClassLong(0), EFISecureBoot: vmopv1.FixedClassBool(false),
+			}
+			class.Spec.ConfigSpec = []byte(`{"_typeName":"VirtualMachineConfigSpec","bootOptions":{"bootDelay":3000,"bootRetryDelay":1500,"bootRetryEnabled":true,"efiSecureBootEnabled":true}}`)
 			Expect(ctx.Client.Create(ctx, class)).To(Succeed())
 			DeferCleanup(func() { Expect(testCtx.Client.Delete(testCtx, class)).To(Succeed()) })
 			ctx.vm.Spec.ClassName = class.Name
@@ -140,6 +226,12 @@ func intgTestsMutating() {
 			Expect(actual.Spec.Resources).NotTo(BeNil())
 			Expect(actual.Spec.Resources.Size.CPU.Value()).To(Equal(int64(2)))
 			Expect(actual.Spec.Resources.Size.Memory.Value()).To(Equal(int64(2 * 1024 * 1024 * 1024)))
+			Expect(actual.Spec.BootOptions).NotTo(BeNil())
+			Expect(actual.Spec.BootOptions.BootDelay).NotTo(BeNil())
+			Expect(actual.Spec.BootOptions.BootDelay.Duration).To(BeZero())
+			Expect(actual.Spec.BootOptions.BootRetryDelay.Duration).To(Equal(1500 * time.Millisecond))
+			Expect(actual.Spec.BootOptions.BootRetry).To(Equal(vmopv1.VirtualMachineBootOptionsBootRetryEnabled))
+			Expect(actual.Spec.BootOptions.EFISecureBoot).To(Equal(vmopv1.VirtualMachineBootOptionsEFISecureBootDisabled))
 		})
 	})
 

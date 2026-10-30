@@ -176,6 +176,27 @@ func unitTestsReconcile() {
 				Expect(list.Items).To(HaveLen(1))
 			})
 
+			It("creates a new immutable snapshot when only boot policy changes", func() {
+				Expect(reconciler.ReconcileNormal(vmClassCtx)).To(Succeed())
+				list := &vmopv1.VirtualMachineClassInstanceList{}
+				Expect(ctx.Client.List(ctx, list, client.InNamespace(vmClass.Namespace))).To(Succeed())
+				Expect(list.Items).To(HaveLen(1))
+				originalName := list.Items[0].Name
+				vmClass.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: vmopv1.FixedClassLong(1000)}
+				Expect(ctx.Client.Update(ctx, vmClass)).To(Succeed())
+				Expect(reconciler.ReconcileNormal(vmClassCtx)).To(Succeed())
+				Expect(ctx.Client.List(ctx, list, client.InNamespace(vmClass.Namespace))).To(Succeed())
+				var active *vmopv1.VirtualMachineClassInstance
+				for i := range list.Items {
+					if _, ok := list.Items[i].Labels[vmopv1.VMClassInstanceActiveLabelKey]; ok {
+						active = &list.Items[i]
+					}
+				}
+				Expect(active).NotTo(BeNil())
+				Expect(active.Name).NotTo(Equal(originalName))
+				Expect(active.Spec.BootOptions).To(Equal(vmClass.Spec.BootOptions))
+			})
+
 			Context("when called multiple times", func() {
 				It("should be idempotent", func() {
 					// First reconcile

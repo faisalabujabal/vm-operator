@@ -212,6 +212,12 @@ A class lists one parent in `spec.parentClassRefs`; its ranges must fit inside t
 
 ---
 
+### Incremental boot acceptance (C1)
+
+The initial boot schema batch implements class `bootOptions.bootDelay`, `bootRetry`, `bootRetryDelay` and `efiSecureBoot` with existing VM counterparts. A class's supplied values are authoritative on VM creation and class change; ordinary updates retain the selected values. Millisecond delay ranges preserve explicit zero and map to VM durations, and explicit false maps to the VM's existing Disabled value. Older class raw presets within that domain move to typed policies without discarding unknown ConfigSpec fields. Unsupported legacy duration values remain raw so upgrade does not make an existing class unreadable. Older-writer edits and removals take precedence per field over preserved annotations.
+
+Firmware and network boot protocol promotion/defaulting are deferred to the separately tracked compatibility task T103g2: existing image-versus-class firmware precedence and the legacy network protocol overwrite remain unchanged until that behavior is settled and covered by baseline-to-candidate tests. `enterBootSetup` is deferred to T103g3, which must add its missing VM counterpart and define the one-shot lifecycle so vSphere resetting the flag does not cause continuous reassertion. These approved deferrals do not complete the wider boot/advanced category. Boot order remains VM-specific.
+
 ## Provider contract
 
 vm-operator runs on a Supervisor whose provider supplies the pieces below. vm-operator states what it assumes, not how the provider does it; the provider's spec tracks the implementation (plan.md, "Provider work").

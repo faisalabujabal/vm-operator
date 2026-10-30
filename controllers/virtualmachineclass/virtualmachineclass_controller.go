@@ -154,6 +154,7 @@ func vmClassHash(ctx *pkgctx.VirtualMachineClassContext, class *vmopv1.VirtualMa
 		ReservedProfileName *vmopv1.EnumPolicy                            `json:"reservedProfileName,omitempty"`
 		CPUAdvanced         *vmopv1.VirtualMachineClassCPUAdvancedSpec    `json:"cpuAdvanced,omitempty"`
 		MemoryAdvanced      *vmopv1.VirtualMachineClassMemoryAdvancedSpec `json:"memoryAdvanced,omitempty"`
+		BootOptions         *vmopv1.VirtualMachineClassBootOptions        `json:"bootOptions,omitempty"`
 	}{
 		configSpec,
 		class.Spec.Hardware,
@@ -162,6 +163,7 @@ func vmClassHash(ctx *pkgctx.VirtualMachineClassContext, class *vmopv1.VirtualMa
 		class.Spec.ReservedProfileName,
 		class.Spec.CPUAdvanced,
 		class.Spec.MemoryAdvanced,
+		class.Spec.BootOptions,
 	}
 
 	b, err := json.Marshal(data)

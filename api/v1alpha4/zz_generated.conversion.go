@@ -2330,6 +2330,7 @@ func autoConvert_v1alpha6_VirtualMachineClassSpec_To_v1alpha4_VirtualMachineClas
 	// WARNING: in.Resources requires manual conversion: does not exist in peer-type
 	// WARNING: in.CPUAdvanced requires manual conversion: does not exist in peer-type
 	// WARNING: in.MemoryAdvanced requires manual conversion: does not exist in peer-type
+	// WARNING: in.BootOptions requires manual conversion: does not exist in peer-type
 	out.Description = in.Description
 	out.ConfigSpec = *(*json.RawMessage)(unsafe.Pointer(&in.ConfigSpec))
 	// WARNING: in.ReservedProfileName requires manual conversion: does not exist in peer-type

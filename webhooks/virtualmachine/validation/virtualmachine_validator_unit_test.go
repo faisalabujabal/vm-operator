@@ -4187,6 +4187,32 @@ func unitTestsValidateCreate() {
 	})
 
 	Context("BootOptions", func() {
+		DescribeTable("class secure boot effective firmware", func(imageFirmware, rawFirmware, explicit string, missing, allowed bool) {
+			doTest(testParams{
+				setup: func(ctx *unitValidatingWebhookContext) {
+					pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+					ctx.vm.Spec.ClassName = "secure-class"
+					ctx.vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{EFISecureBoot: vmopv1.VirtualMachineBootOptionsEFISecureBootEnabled, Firmware: vmopv1.VirtualMachineBootOptionsFirmwareType(explicit)}
+					class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "secure-class", Namespace: ctx.vm.Namespace}, Spec: vmopv1.VirtualMachineClassSpec{ConfigSpec: []byte(`{"firmware":"` + rawFirmware + `"}`)}}
+					Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+					ctx.vm.Spec.Image = &vmopv1.VirtualMachineImageRef{Kind: "VirtualMachineImage", Name: "image"}
+					if !missing {
+						image := &vmopv1.VirtualMachineImage{ObjectMeta: metav1.ObjectMeta{Name: "image", Namespace: ctx.vm.Namespace}, Status: vmopv1.VirtualMachineImageStatus{Firmware: imageFirmware}}
+						Expect(ctx.Client.Create(ctx, image)).To(Succeed())
+					}
+				},
+				expectAllowed: allowed,
+			})
+			Expect(ctx.vm.Spec.BootOptions.Firmware).To(Equal(vmopv1.VirtualMachineBootOptionsFirmwareType(explicit)))
+		},
+			Entry("image EFI", "efi", "bios", "", false, true),
+			Entry("raw EFI fallback", "", "efi", "", false, true),
+			Entry("image BIOS wins over raw EFI", "bios", "efi", "", false, false),
+			Entry("explicit BIOS remains rejected", "efi", "efi", "bios", false, false),
+			Entry("explicit EFI wins", "bios", "bios", "efi", false, true),
+			Entry("missing image does not fall back", "", "efi", "", true, false),
+		)
+
 		DescribeTable("BootOptions create", doTest,
 
 			Entry("allow empty bootOptions",

@@ -148,6 +148,21 @@ func intgTestsValidateCreate() {
 	)
 
 	DescribeTable("class policy schema", validateSchema,
+		Entry("accepts explicit false and zero boot defaults", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{
+				EFISecureBoot: vmopv1.FixedClassBool(false), BootRetry: vmopv1.FixedClassBool(false),
+				BootDelay: vmopv1.FixedClassLong(0), BootRetryDelay: vmopv1.FixedClassLong(1500),
+			}
+		}, false),
+		Entry("rejects a fixed boot boolean without a default", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootRetry: &vmopv1.BoolPolicy{AllowOverride: ptr.To(false)}}
+		}, true),
+		Entry("rejects a negative boot duration", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: vmopv1.FixedClassLong(-1)}
+		}, true),
+		Entry("rejects a duration that cannot fit the VM representation", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootRetryDelay: vmopv1.FixedClassLong(9223372036855)}
+		}, true),
 		Entry("accepts numeric and string quantities", func(class *vmopv1.VirtualMachineClass) {
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{
 				Min: ptr.To(resource.MustParse("1")), Max: ptr.To(resource.MustParse("4")), Default: ptr.To(resource.MustParse("2")),
@@ -222,6 +237,14 @@ func intgTestsValidateCreate() {
 			class.Spec.ReservedProfileName = &vmopv1.EnumPolicy{Allowed: &allowed}
 		}, false),
 	)
+
+	It("rejects invalid boot bounds on update", func() {
+		class := ctx.vmClass.DeepCopy()
+		class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: vmopv1.FixedClassLong(1000)}
+		Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+		class.Spec.BootOptions.BootDelay.Max = ptr.To(int64(500))
+		Expect(ctx.Client.Update(ctx, class)).NotTo(Succeed())
+	})
 
 }
 

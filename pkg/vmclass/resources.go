@@ -31,7 +31,7 @@ func ApplyDefaults(
 	vm, oldVM *vmopv1.VirtualMachine,
 ) (bool, error) {
 	features := pkgcfg.FromContext(ctx).Features
-	if !features.TelcoVMServiceAPI || vm.Spec.ClassName == "" {
+	if !features.VMServiceClasslessVM || vm.Spec.ClassName == "" {
 		return false, nil
 	}
 	if oldVM != nil {
@@ -41,7 +41,40 @@ func ApplyDefaults(
 			return false, nil
 		}
 	}
-	var spec vmopv1.VirtualMachineClassSpec
+	spec, err := resolveClassSpec(ctx, c, vm, oldVM)
+	if err != nil || spec == nil {
+		return false, err
+	}
+	if provider == nil {
+		return false, fmt.Errorf("class resource defaults provider is unavailable")
+	}
+	resources, err := provider.GetVirtualMachineClassResources(ctx, *spec)
+	if err != nil {
+		return false, fmt.Errorf("resolve resources for class %s: %w", vm.Spec.ClassName, err)
+	}
+	// Resolve native raw presets and typed defaults through the same mapping
+	// used by conversion and the provider. Work on a copy so policy constraints
+	// and the original legacy document remain unchanged in the cached class.
+	effective := spec.DeepCopy()
+	effective.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(spec)
+	if err != nil {
+		return false, fmt.Errorf("project defaults for class %s: %w", vm.Spec.ClassName, err)
+	}
+	if err := vmopv1.PromoteClassConfigSpec(effective); err != nil {
+		return false, fmt.Errorf("resolve defaults for class %s: %w", vm.Spec.ClassName, err)
+	}
+	before := vm.Spec.DeepCopy()
+	vm.Spec.Resources = resources.DeepCopy()
+	applyComputeDefaults(vm, effective, oldVM != nil)
+	applyBootDefaults(vm, effective, oldVM != nil)
+	applyAdvancedDefaults(vm, effective, oldVM != nil)
+	return !apiequality.Semantic.DeepEqual(*before, vm.Spec), nil
+}
+
+// resolveClassSpec shares class/snapshot selection between defaulting and
+// prerequisite validation, including class changes retaining an old snapshot.
+func resolveClassSpec(ctx context.Context, c ctrlclient.Client, vm, oldVM *vmopv1.VirtualMachine) (*vmopv1.VirtualMachineClassSpec, error) {
+	features := pkgcfg.FromContext(ctx).Features
 	useInstance := features.ImmutableClasses && vm.Spec.Class != nil && vm.Spec.Class.Name != ""
 	// A className change must not read a snapshot of the previous class.
 	if oldVM != nil && vm.Spec.ClassName != oldVM.Spec.ClassName &&
@@ -52,43 +85,19 @@ func ApplyDefaults(
 		var instance vmopv1.VirtualMachineClassInstance
 		key := ctrlclient.ObjectKey{Namespace: vm.Namespace, Name: vm.Spec.Class.Name}
 		if err := c.Get(ctx, key, &instance); err != nil {
-			return false, fmt.Errorf("resolve class instance %s: %w", key, err)
+			return nil, fmt.Errorf("resolve class instance %s: %w", key, err)
 		}
-		spec = instance.Spec.VirtualMachineClassSpec
-	} else {
-		var class vmopv1.VirtualMachineClass
-		key := ctrlclient.ObjectKey{Namespace: vm.Namespace, Name: vm.Spec.ClassName}
-		if err := c.Get(ctx, key, &class); err != nil {
-			// Existing provisioning flows admit the VM before its class is copied
-			// into the namespace. Reconciliation resolves it when it arrives.
-			if apierrors.IsNotFound(err) {
-				return false, nil
-			}
-			return false, fmt.Errorf("resolve class %s: %w", key, err)
+		return &instance.Spec.VirtualMachineClassSpec, nil
+	}
+	var class vmopv1.VirtualMachineClass
+	key := ctrlclient.ObjectKey{Namespace: vm.Namespace, Name: vm.Spec.ClassName}
+	if err := c.Get(ctx, key, &class); err != nil {
+		// Existing provisioning flows admit the VM before its class is copied
+		// into the namespace. Reconciliation resolves it when it arrives.
+		if apierrors.IsNotFound(err) {
+			return nil, nil
 		}
-		spec = class.Spec
+		return nil, fmt.Errorf("resolve class %s: %w", key, err)
 	}
-	if provider == nil {
-		return false, fmt.Errorf("class resource defaults provider is unavailable")
-	}
-	resources, err := provider.GetVirtualMachineClassResources(ctx, spec)
-	if err != nil {
-		return false, fmt.Errorf("resolve resources for class %s: %w", vm.Spec.ClassName, err)
-	}
-	// Resolve native raw presets and typed defaults through the same mapping
-	// used by conversion and the provider. Work on a copy so policy constraints
-	// and the original legacy document remain unchanged in the cached class.
-	effective := spec.DeepCopy()
-	effective.ConfigSpec, err = vmopv1.ProjectClassConfigSpec(&spec)
-	if err != nil {
-		return false, fmt.Errorf("project defaults for class %s: %w", vm.Spec.ClassName, err)
-	}
-	if err := vmopv1.PromoteClassConfigSpec(effective); err != nil {
-		return false, fmt.Errorf("resolve defaults for class %s: %w", vm.Spec.ClassName, err)
-	}
-	before := vm.Spec.DeepCopy()
-	vm.Spec.Resources = resources.DeepCopy()
-	applyComputeDefaults(vm, effective, oldVM != nil)
-	applyAdvancedDefaults(vm, effective, oldVM != nil)
-	return !apiequality.Semantic.DeepEqual(*before, vm.Spec), nil
+	return &class.Spec, nil
 }

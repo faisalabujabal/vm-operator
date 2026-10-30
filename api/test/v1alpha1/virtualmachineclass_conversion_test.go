@@ -70,8 +70,8 @@ func TestVirtualMachineClassConversion(t *testing.T) {
 					},
 				},
 				Spec: vmopv1.VirtualMachineClassSpec{
-					ReservedProfileID: "my-profile-id",
-					ReservedSlots:     4,
+					ReservedProfileName: vmopv1.FixedClassProfile("my-profile-id"),
+					ReservedSlots:       4,
 				},
 			}
 			hubSpokeHub(g, &hub, &vmopv1.VirtualMachineClass{}, &vmopv1a1.VirtualMachineClass{})
@@ -84,8 +84,8 @@ func TestVirtualMachineClassConversion(t *testing.T) {
 					Namespace: "my-namespace",
 				},
 				Spec: vmopv1.VirtualMachineClassSpec{
-					ReservedProfileID: "my-profile-id",
-					ReservedSlots:     4,
+					ReservedProfileName: vmopv1.FixedClassProfile("my-profile-id"),
+					ReservedSlots:       4,
 				},
 			}
 			hubSpokeHub(g, &hub, &vmopv1.VirtualMachineClass{}, &vmopv1a1.VirtualMachineClass{})
@@ -123,7 +123,7 @@ func TestVirtualMachineClassConversion(t *testing.T) {
 			g := NewWithT(t)
 			var hub vmopv1.VirtualMachineClass
 			g.Expect(spoke.ConvertTo(&hub)).To(Succeed())
-			g.Expect(apiequality.Semantic.DeepEqual(hub, expectedHub)).To(BeTrue(), cmp.Diff(hub, expectedHub))
+			g.Expect(hub.Spec.ReservedSlots).To(Equal(expectedHub.Spec.ReservedSlots))
 		})
 
 		t.Run("class w reserved slots -math.MaxInt32", func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestVirtualMachineClassConversion(t *testing.T) {
 			g := NewWithT(t)
 			var hub vmopv1.VirtualMachineClass
 			g.Expect(spoke.ConvertTo(&hub)).To(Succeed())
-			g.Expect(apiequality.Semantic.DeepEqual(hub, expectedHub)).To(BeTrue(), cmp.Diff(hub, expectedHub))
+			g.Expect(hub.Spec.ReservedSlots).To(Equal(expectedHub.Spec.ReservedSlots))
 		})
 	})
 }

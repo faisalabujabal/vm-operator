@@ -5,12 +5,14 @@
 package virtualmachine_test
 
 import (
+	"context"
 	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/google/uuid"
@@ -22,6 +24,7 @@ import (
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
 	"github.com/vmware-tanzu/vm-operator/pkg/providers/vsphere/constants"
 	"github.com/vmware-tanzu/vm-operator/pkg/providers/vsphere/virtualmachine"
+	pkgutil "github.com/vmware-tanzu/vm-operator/pkg/util"
 	kubeutil "github.com/vmware-tanzu/vm-operator/pkg/util/kube"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	"github.com/vmware-tanzu/vm-operator/test/builder"
@@ -96,7 +99,7 @@ var _ = Describe("CreateConfigSpec", func() {
 				Expect(configSpec.Name).To(Equal(vmName))
 				Expect(configSpec.Version).To(BeEmpty())
 				Expect(configSpec.Annotation).ToNot(BeEmpty())
-				Expect(configSpec.NumCPUs).To(BeEquivalentTo(vmClassSpec.Hardware.Cpus))
+				Expect(configSpec.NumCPUs).To(BeEquivalentTo(vmClassSpec.Resources.Size.CPU.Default.Value()))
 				Expect(configSpec.MemoryMB).To(BeEquivalentTo(4 * 1024))
 				Expect(configSpec.CpuAllocation.Shares).ToNot(BeNil())
 				Expect(configSpec.CpuAllocation.Shares.Level).To(Equal(vimtypes.SharesLevelNormal))
@@ -111,7 +114,8 @@ var _ = Describe("CreateConfigSpec", func() {
 
 			Context("VM Class has no requests/limits (best effort)", func() {
 				BeforeEach(func() {
-					vmClassSpec.Policies = vmopv1.VirtualMachineClassPolicies{}
+					vmClassSpec.Resources.Requests = vmopv1.VirtualMachineClassResourceSpec{}
+					vmClassSpec.Resources.Limits = vmopv1.VirtualMachineClassResourceSpec{}
 				})
 
 				It("returns expected config spec", func() {
@@ -128,7 +132,7 @@ var _ = Describe("CreateConfigSpec", func() {
 
 			Context("VM Class has request but no limits", func() {
 				BeforeEach(func() {
-					vmClassSpec.Policies.Resources.Limits = vmopv1.VirtualMachineResourceSpec{}
+					vmClassSpec.Resources.Limits = vmopv1.VirtualMachineClassResourceSpec{}
 				})
 
 				It("returns expected config spec", func() {
@@ -292,7 +296,7 @@ var _ = Describe("CreateConfigSpec", func() {
 			Expect(configSpec.Name).To(Equal(vmName))
 			Expect(configSpec.Version).To(BeEmpty())
 			Expect(configSpec.Annotation).To(Equal("test-annotation"))
-			Expect(configSpec.NumCPUs).To(BeEquivalentTo(vmClassSpec.Hardware.Cpus))
+			Expect(configSpec.NumCPUs).To(BeEquivalentTo(vmClassSpec.Resources.Size.CPU.Default.Value()))
 			Expect(configSpec.MemoryMB).To(BeEquivalentTo(4 * 1024))
 			Expect(configSpec.CpuAllocation).ToNot(BeNil())
 			Expect(configSpec.CpuAllocation.Shares).ToNot(BeNil())
@@ -485,15 +489,31 @@ var _ = Describe("CreateConfigSpec", func() {
 			})
 		})
 
+		When("only raw ConfigSpec supplies a reserved profile", func() {
+			BeforeEach(func() {
+				vmClassSpec.ReservedProfileName = nil
+				classConfigSpec.ExtraConfig = []vimtypes.BaseOptionValue{
+					&vimtypes.OptionValue{Key: constants.ExtraConfigReservedProfileID, Value: "legacy-raw-profile"},
+				}
+			})
+
+			It("preserves the legacy reservation", func() {
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(constants.ExtraConfigReservedProfileID)
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(Equal("legacy-raw-profile"))
+			})
+		})
+
 		When("VM Class has reserved profile ID", func() {
 			BeforeEach(func() {
-				vmClassSpec.ReservedProfileID = "my-profile-id"
+				vmClassSpec.ReservedProfileName = &vmopv1.EnumPolicy{Default: ptr.To("my-profile-id")}
 			})
 			Specify("configSpec should have the expected ExtraConfig value", func() {
-				profileID, _ := object.OptionValueList(
-					configSpec.ExtraConfig).GetString(
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(
 					constants.ExtraConfigReservedProfileID)
-				Expect(profileID).To(Equal(vmClassSpec.ReservedProfileID))
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(BeAssignableToTypeOf(""))
+				Expect(profileID).To(Equal(*vmClassSpec.ReservedProfileName.Default))
 
 				namespacedName, _ := object.OptionValueList(
 					configSpec.ExtraConfig).GetString(
@@ -502,15 +522,47 @@ var _ = Describe("CreateConfigSpec", func() {
 			})
 		})
 
+		When("VM Class allows one reserved profile without an explicit default", func() {
+			BeforeEach(func() {
+				allowed := []string{"only-profile"}
+				vmClassSpec.ReservedProfileName = &vmopv1.EnumPolicy{Allowed: &allowed}
+			})
+			It("uses the sole allowed profile as a string value", func() {
+				profileID, ok := object.OptionValueList(configSpec.ExtraConfig).Get(
+					constants.ExtraConfigReservedProfileID)
+				Expect(ok).To(BeTrue())
+				Expect(profileID).To(BeAssignableToTypeOf(""))
+				Expect(profileID).To(Equal("only-profile"))
+			})
+		})
+
 		When("VM Class has reservations", func() {
 			BeforeEach(func() {
-				vmClassSpec.Policies = vmopv1.VirtualMachineClassPolicies{}
+				vmClassSpec.Resources.Requests = vmopv1.VirtualMachineClassResourceSpec{}
+				vmClassSpec.Resources.Limits = vmopv1.VirtualMachineClassResourceSpec{}
 				classConfigSpec.CpuAllocation = &vimtypes.ResourceAllocationInfo{
 					Reservation: ptr.To[int64](200),
 				}
 				classConfigSpec.MemoryAllocation = &vimtypes.ResourceAllocationInfo{
 					Reservation: ptr.To[int64](200),
 				}
+			})
+			Context("with explicit zero allocation defaults", func() {
+				BeforeEach(func() {
+					zero := vmopv1.FixedClassResource(resource.MustParse("0"))
+					vmClassSpec.Resources.Requests.CPU = zero.DeepCopy()
+					vmClassSpec.Resources.Requests.Memory = zero.DeepCopy()
+					vmClassSpec.Resources.Limits.CPU = zero.DeepCopy()
+					vmClassSpec.Resources.Limits.Memory = zero.DeepCopy()
+					classConfigSpec.CpuAllocation.Limit = ptr.To[int64](300)
+					classConfigSpec.MemoryAllocation.Limit = ptr.To[int64](400)
+				})
+				It("preserves the legacy raw allocation precedence", func() {
+					Expect(*configSpec.CpuAllocation.Reservation).To(Equal(int64(200)))
+					Expect(*configSpec.CpuAllocation.Limit).To(Equal(int64(300)))
+					Expect(*configSpec.MemoryAllocation.Reservation).To(Equal(int64(200)))
+					Expect(*configSpec.MemoryAllocation.Limit).To(Equal(int64(400)))
+				})
 			})
 			Specify("configSpec should have the allocation defaults", func() {
 				Expect(configSpec.CpuAllocation).ToNot(BeNil())
@@ -2545,6 +2597,44 @@ var _ = Describe("ConfigSpecFromVMClassDevices", func() {
 			Expect(pciBacking2.AllowedDevice[0].VendorId).To(BeEquivalentTo(vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices[0].VendorID))
 			Expect(pciBacking2.CustomLabel).To(Equal(vmClassSpec.Hardware.Devices.DynamicDirectPathIODevices[0].CustomLabel))
 		})
+	})
+})
+
+var _ = Describe("ClassConfigSpecFromClassSpec", func() {
+	It("preserves raw ConfigSpec device precedence over typed defaults", func() {
+		classConfig := vimtypes.VirtualMachineConfigSpec{
+			Annotation: "class annotation",
+			DeviceChange: []vimtypes.BaseVirtualDeviceConfigSpec{
+				&vimtypes.VirtualDeviceConfigSpec{
+					Operation: vimtypes.VirtualDeviceConfigSpecOperationAdd,
+					Device: &vimtypes.VirtualPCIPassthrough{
+						VirtualDevice: vimtypes.VirtualDevice{
+							Key:     -100,
+							Backing: &vimtypes.VirtualPCIPassthroughVmiopBackingInfo{Vgpu: "raw-profile"},
+						},
+					},
+				},
+			},
+		}
+		raw, err := pkgutil.MarshalConfigSpecToJSON(classConfig)
+		Expect(err).ToNot(HaveOccurred())
+
+		vgpuDefault := []vmopv1.VGPUDevice{{ProfileName: "profile"}}
+		ddpioDefault := []vmopv1.DynamicDirectPathIODevice{{VendorID: 20, DeviceID: 30}}
+		classSpec := vmopv1.VirtualMachineClassSpec{
+			ConfigSpec: raw,
+			Hardware: vmopv1.VirtualMachineClassHardware{
+				Devices: vmopv1.VirtualDevices{
+					VGPUDevices:                vgpuDefault,
+					DynamicDirectPathIODevices: ddpioDefault,
+				},
+			},
+		}
+
+		got, err := virtualmachine.ClassConfigSpecFromClassSpec(context.Background(), &classSpec)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.Annotation).To(Equal(classConfig.Annotation))
+		Expect(got.DeviceChange).To(Equal(classConfig.DeviceChange))
 	})
 })
 

@@ -26,6 +26,7 @@ Each open item changes the shape of an API or a check. A task that depends on on
 - [x] T009c `reservedSlots` stays `int32` with the same name and meaning, deprecated, preserved through conversion and the namespace copy including zero, never overwritten with observed totals; no annotation migration
 - [x] T009d `VirtualMachineReservedProfile` moves out of vm-operator's API; the provider publishes and backfills it (T910); vm-operator only reads it (T103a)
 - [x] T009e Devices are `ListPolicy`s over the VM's inline vGPU and DirectPath I/O devices. Items are flat and mirror the environment-browser entry: `{profileName, count}` and `{vendorID, deviceID, customLabel, count}`, keyed by `profileName` and by `vendorID` + `deviceID`, with the same key names in the environment browser, the class and the VM. Matchers are the key fields, each optional; string key fields take `{fixed, glob, regex}`. Independent count bounds and required entries are deferred
+- [ ] T009g [vmop-4315] Before T103h, reconcile the VM schema reference's named individual PCI devices and per-device settings with the grouped class device model; obtain agreement on the VM device identity and quantity representation
 - [x] T009f A collection of independent items is a `ListPolicy`; a collection that is one setting is a `SetPolicy` (`default`, `allowed` sets, `required`; no `denied`). `pnumaNodeAffinity` is an `Int32SetPolicy` in Milestone 1; `cpuFeatureMask` is a top-class preset until Milestone 2
 - [x] T005 The environment-browser demand gate is dropped; the CRDs are restricted to admins instead (T107)
 - [x] T006 `configSpec` keeps its name
@@ -48,12 +49,27 @@ Each open item changes the shape of an API or a check. A task that depends on on
 
 - [ ] T101 [P] [US12] [vmop-4314] A CI pipeline that runs the Flex VM Classes E2E suites with the capability enabled, quarantined until vmop-4337 — `test/e2e`, CI config
 
+### Incremental schema PRs (vmop-4315)
+
+The resource migration (A1) targets spec PR #2067. The device policy (A2) and class reserved-profile policy (A3) PRs independently target A1. Category PRs initially target the foundation in parallel; only actual code dependencies impose further stacking. Every PR includes its generated artifacts, affected consumers, conversion tests, appropriate integration tests, focused end-to-end scenarios, and spec/task updates. A completed category does not complete the broader governance tasks below.
+
+- [x] T103c [US1/US9] [vmop-4315] PR A1: reshape existing typed resources into ranges; preserve legacy devices, instance storage, reserved profile IDs and slots; migrate resource consumers and class-instance hashes. Includes the resource portions of T102, T104 and T106
+- [ ] T103k [US8/US9] [vmop-4315] PR A2: migrate existing class device lists to policies, conversion, consumers and device-specific tests; target PR A1
+- [x] T103l [US10] [vmop-4315] PR A3: migrate class reserved-profile IDs to policies, conversion, consumers and profile-specific tests; target PR A1. Staged E2E preserves an old namespace class profile and zero slots through an actual operator upgrade, stores a richer policy, verifies an older writer preserves it, and checks the class controller snapshot; written, not executed
+- [x] T103d [US4] [vmop-4315] PR A1: materialize existing VM resource counterparts in mutation using the existing TelcoVMServiceAPI gate and current CPU conversion; preserve ordinary updates and existing resize behavior. Pulls forward the resource portion of T400
+- [ ] T103e [US1/US9] [vmop-4315] PR A1: execute new-schema E2E and the real baseline-to-candidate upgrade workflow with existing tenant workloads. Both scenarios are written and compile; execution is deferred for draft review while the testbed is provisioned. Covers the foundation portion of T106b
+- [ ] T103f [US1/US4] [vmop-4315] PR B: CPU/memory typed settings, missing specified VM counterparts, conversion, consumers, mutation and category tests
+- [ ] T103g [US1/US4] [vmop-4315] PR C: boot/advanced settings, ExtraConfig ListPolicy and NUMA Int32SetPolicy, conversion, consumers, mutation and category tests
+- [ ] T103h [US8/US10] [vmop-4315] PR D: inline VM device counterparts and default materialization; conversion, consumers and category tests. Implements T108a incrementally
+- [ ] T103i [US10] [vmop-4315] PR E: VM profile selection, mutation and existing-VM backfill, provider consumption and removal, and category tests. Includes applicable portions of T108, T110 and T409
+- [ ] T103j [US1/US4] [vmop-4315] PR F: settled remaining hardware presets and category tests; CPU masks remain top-class presets; T011 remains deferred
+
 ### Story — VM Class v1alpha6 schema (vmop-4315)
 
-- [ ] T102 [US1/US9] [vmop-4315] Wire the round-trip annotation into the `VirtualMachineClass` conversion functions before the rest of the schema lands — `api/utilconversion`, `api/v1alpha*/virtualmachineclass_conversion.go`
+- [x] T102 [US1/US9] [vmop-4315] Wire the round-trip annotation into the `VirtualMachineClass` conversion functions before the rest of the schema lands — `api/utilconversion`, `api/v1alpha*/virtualmachineclass_conversion.go`. Shared hub helpers centralize metadata isolation, annotation save/restore and policy projection for every spoke and class instance
 - [ ] T103 [US1/US2/US10] [vmop-4315] Reshape `VirtualMachineClass` v1alpha6 in place: `resources` (size, requests, limits), `cpuAdvanced`, `memoryAdvanced`, `bootOptions`, `advanced` (incl. `extraConfig`), `hardware.devices`, `hardware.instanceStorage`, the hardware version (per T011), leftover-only `configSpec`, `zones`, `governs` (`zones`, `enforcement`, `existingVMs`), `externalID`, `reservedProfileName`, `parentClassRefs` (reserved, rejected in Milestone 1), `status.zones[]`, the schema-version label — `api/v1alpha6/virtualmachineclass_types.go`
 - [ ] T103a [US10] [vmop-4315] Remove `VirtualMachineReservedProfile` from the vm-operator API and its CRD, and add read-only RBAC for it — `api/v1alpha6/`, `config/crd/`, `config/rbac`
-- [ ] T103b [US10] [vmop-4315] Remove `ReservedProfileID` from `VirtualMachineClassSpec` in v1alpha6 (replaced by `reservedProfileName`); keep it in v1alpha5 and older for conversion; regenerate deepcopy and CRDs — `api/v1alpha6/virtualmachineclass_types.go`, `config/crd/`
+- [x] T103b [US10] [vmop-4315] Remove `ReservedProfileID` from `VirtualMachineClassSpec` in v1alpha6 (replaced by `reservedProfileName`); keep it in v1alpha5 and older for conversion; regenerate deepcopy and CRDs — `api/v1alpha6/virtualmachineclass_types.go`, `config/crd/`
 - [ ] T104 [P] [US1/US2] [vmop-4315] The value types (number range, `EnumPolicy` with `required`, `BoolPolicy`, `ListPolicy` with the device form) and their CEL rules, including `governs.zones` ⊆ `spec.zones`, with envtest coverage of every rule — `api/v1alpha6/`
 - [ ] T105 [vmop-4315] `make generate-go generate-manifests`; commit generated files
 
@@ -142,7 +158,7 @@ The class APIs, their generation and the namespace-copy integration are provider
 ### Story — Provider API mapping markers (vmop-4326)
 
 - [ ] T307 [US9] [vmop-4326] The mapping markers the provider's API generation reads on the v1alpha6 class types, and a CI check that every field has a mapping or an explicit exclusion — `api/v1alpha6/virtualmachineclass_types.go`, value types in `api/v1alpha6/`
-- [ ] T308 [US9] [vmop-4326] Schema test on the generated CRD: every governed field matches exactly one value shape by its field set; device lists are map lists keyed by the same key fields as their environment-browser entries; matcher lists are atomic — test under `api/`
+- [ ] T308 [US9] [vmop-4326] Schema test on the generated CRD: every governed field matches exactly one value shape by property names, types, and nested structure; device lists are map lists keyed by the same key fields as their environment-browser entries; matcher lists are atomic — test under `api/`
 
 ---
 

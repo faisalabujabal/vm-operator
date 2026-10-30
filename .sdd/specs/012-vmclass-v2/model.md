@@ -52,7 +52,7 @@ Device items: independent count bounds and required entries are deferred. A devi
 | `governs.existingVMs` | enum | `AllowOnViolation` or `DenyPowerOn`. Required on a governing class with no parent. In Milestone 2 only the top class sets it; children inherit it. |
 | `parentClassRefs` | list of `{name}` | Milestone 2. Rejected in Milestone 1. One entry; same namespace. |
 | `resources.size.{cpu,memory}` | Number | CPU in vCPUs. |
-| `resources.{requests,limits}.{cpu,memory}` | Number | CPU in vCPUs; compared with a VM's MHz using the cluster's minimum host frequency. |
+| `resources.{requests,limits}.{cpu,memory}` | Number | CPU in vCPUs. The incremental migration retains the existing Supervisor-wide minimum host frequency for conversion to VM MHz. Cluster-specific conversion remains an open question and must not change the vCPU definition implicitly. |
 | `cpuAdvanced.*`, `memoryAdvanced.*`, `bootOptions.*`, `advanced.*` | per field | Same paths as `VirtualMachine.spec`. |
 | `advanced.extraConfig` | `ListPolicy` | At the VM's path. |
 | `hardware.devices.{vgpuDevices,dynamicDirectPathIODevices}` | `ListPolicy` of device items | See "Value shapes". |

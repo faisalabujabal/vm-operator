@@ -7,6 +7,16 @@ package v1alpha5_test
 import (
 	"encoding/json"
 
+	"github.com/vmware-tanzu/vm-operator/api/utilconversion"
+	vmopv1a1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmopv1a2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmopv1a3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmopv1a4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrlconversion "sigs.k8s.io/controller-runtime/pkg/conversion"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -64,8 +74,19 @@ var _ = Describe("FuzzyConversion", Label("api", "fuzz"), func() {
 		BeforeEach(func() {
 			input = fuzztests.FuzzTestFuncInput{
 				Scheme: scheme,
-				Hub:    &vmopv1.VirtualMachineClass{},
-				Spoke:  &vmopv1a5.VirtualMachineClass{},
+				HubAfterMutation: func(h ctrlconversion.Hub) {
+					if m := h.(metav1.Object); len(m.GetAnnotations()) == 0 {
+						m.SetAnnotations(nil)
+					}
+				},
+				SpokeAfterMutation: func(h ctrlconversion.Convertible) {
+					if m := h.(metav1.Object); len(m.GetAnnotations()) == 0 {
+						m.SetAnnotations(nil)
+					}
+				},
+				Hub:         &vmopv1.VirtualMachineClass{},
+				Spoke:       &vmopv1a5.VirtualMachineClass{},
+				FuzzerFuncs: []fuzzer.FuzzerFuncs{fuzztests.ClassPolicyFuzzerFuncs, overrideVirtualMachineFieldsFuncs},
 			}
 		})
 		Context("Spoke-Hub-Spoke", func() {
@@ -256,6 +277,289 @@ func overrideVirtualMachineFieldsFuncs(codecs runtimeserializer.CodecFactory) []
 	return []interface{}{
 		func(msg *json.RawMessage, c randfill.Continue) {
 			*msg = []byte(`{"foo":"bar"}`)
+		},
+	}
+}
+
+var _ = Describe("VMClass schema migration", Label("api"), func() {
+	for _, version := range []struct {
+		name     string
+		newSpoke func() ctrlconversion.Convertible
+	}{
+		{"v1alpha1", func() ctrlconversion.Convertible { return &vmopv1a1.VirtualMachineClass{} }},
+		{"v1alpha2", func() ctrlconversion.Convertible { return &vmopv1a2.VirtualMachineClass{} }},
+		{"v1alpha3", func() ctrlconversion.Convertible { return &vmopv1a3.VirtualMachineClass{} }},
+		{"v1alpha4", func() ctrlconversion.Convertible { return &vmopv1a4.VirtualMachineClass{} }},
+		{"v1alpha5", func() ctrlconversion.Convertible { return &vmopv1a5.VirtualMachineClass{} }},
+	} {
+		Context(version.name, func() {
+			It("moves legacy scalars without changing units, devices, storage or reservation slots", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{
+					"metadata":{"name":"legacy","namespace":"tenant"},
+					"spec":{
+						"hardware":{"cpus":4,"memory":"4Gi","devices":{
+							"vgpuDevices":[{"profileName":"gpu-a"}],
+							"dynamicDirectPathIODevices":[{"vendorID":1,"deviceID":2,"customLabel":"a"},{"vendorID":1,"deviceID":2,"customLabel":"b"}]},
+							"instanceStorage":{"storageClass":"local","volumes":[{"size":"16Gi"}]}},
+						"policies":{"resources":{"requests":{"cpu":"2","memory":"1Gi"},"limits":{"cpu":"4","memory":"8Gi"}}},
+						"configSpec":{"_typeName":"VirtualMachineConfigSpec","annotation":"keep"},
+						"reservedProfileID":"profile-a","reservedSlots":0
+					}}`), spoke)).To(Succeed())
+				before := spoke.DeepCopyObject()
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(hub.Spec.Resources.Size.CPU.Default.String()).To(Equal("4"))
+				Expect(hub.Spec.Resources.Size.CPU.Min.Cmp(*hub.Spec.Resources.Size.CPU.Default)).To(BeZero())
+				Expect(hub.Spec.Resources.Size.CPU.Max.Cmp(*hub.Spec.Resources.Size.CPU.Default)).To(BeZero())
+				Expect(hub.Spec.Resources.Size.Memory.Default.String()).To(Equal("4Gi"))
+				Expect(hub.Spec.Resources.Requests.CPU.Default.String()).To(Equal("2"))
+				Expect(hub.Spec.Resources.Requests.Memory.Default.String()).To(Equal("1Gi"))
+				Expect(hub.Spec.Resources.Limits.CPU.Default.String()).To(Equal("4"))
+				Expect(hub.Spec.Resources.Limits.Memory.Default.String()).To(Equal("8Gi"))
+				Expect(*hub.Spec.ReservedProfileName.Default).To(Equal("profile-a"))
+				Expect(*hub.Spec.ReservedProfileName.Allowed).To(Equal([]string{"profile-a"}))
+				Expect(*hub.Spec.ReservedProfileName.Required).To(BeTrue())
+				Expect(hub.Spec.ReservedSlots).To(BeZero())
+				Expect(hub.Spec.Hardware.Devices.VGPUDevices).To(Equal([]vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}))
+				Expect(hub.Spec.Hardware.Devices.DynamicDirectPathIODevices).To(Equal([]vmopv1.DynamicDirectPathIODevice{
+					{VendorID: 1, DeviceID: 2, CustomLabel: "a"}, {VendorID: 1, DeviceID: 2, CustomLabel: "b"},
+				}))
+				Expect(hub.Spec.Hardware.InstanceStorage.StorageClass).To(Equal("local"))
+				Expect(hub.Spec.Hardware.InstanceStorage.Volumes[0].Size.String()).To(Equal("16Gi"))
+				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","annotation":"keep"}`))
+				Expect(apiequality.Semantic.DeepEqual(spoke, before)).To(BeTrue())
+			})
+
+			It("preserves policies through an unchanged older-client write", func() {
+				hub := classWithPolicies()
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				before := spoke.DeepCopyObject()
+				var restored vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec).To(Equal(hub.Spec))
+				Expect(restored.Annotations).NotTo(HaveKey(utilconversion.AnnotationKey))
+				Expect(apiequality.Semantic.DeepEqual(spoke, before)).To(BeTrue())
+				Expect(hub.Annotations).NotTo(HaveKey(utilconversion.AnnotationKey))
+			})
+
+			It("copies metadata before preserving class policies", func() {
+				hub := classWithPolicies()
+				hub.Annotations = map[string]string{"user": "keep"}
+				hub.Labels = map[string]string{"user": "keep"}
+				before := hub.DeepCopy()
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				Expect(hub).To(Equal(before))
+				spoke.(metav1.Object).GetLabels()["user"] = "changed"
+				spoke.(metav1.Object).GetAnnotations()["user"] = "changed"
+				Expect(hub).To(Equal(before))
+			})
+
+			It("honors older-writer edits without discarding other policies", func() {
+				hub := classWithPolicies()
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				Expect(json.Unmarshal([]byte(`{"spec":{"hardware":{"cpus":8},"reservedProfileID":"profile-b","reservedSlots":0}}`), spoke)).To(Succeed())
+				var restored vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec.Resources.Size.CPU.Default.String()).To(Equal("8"))
+				Expect(restored.Spec.Resources.Size.CPU.Min.String()).To(Equal("8"))
+				Expect(restored.Spec.Resources.Size.CPU.Max.String()).To(Equal("8"))
+				Expect(restored.Spec.Resources.Size.Memory).To(Equal(hub.Spec.Resources.Size.Memory))
+				Expect(restored.Spec.Hardware.Devices).To(Equal(hub.Spec.Hardware.Devices))
+				Expect(*restored.Spec.ReservedProfileName.Default).To(Equal("profile-b"))
+				Expect(*restored.Spec.ReservedProfileName.Allowed).To(Equal([]string{"profile-b"}))
+				Expect(*restored.Spec.ReservedProfileName.Required).To(BeTrue())
+				Expect(restored.Spec.ReservedSlots).To(BeZero())
+			})
+
+			DescribeTable("preserves profile selection states through older clients",
+				func(policy *vmopv1.EnumPolicy) {
+					hub := classWithPolicies()
+					hub.Spec.ReservedProfileName = policy
+					spoke := version.newSpoke()
+					Expect(spoke.ConvertFrom(hub)).To(Succeed())
+					var restored vmopv1.VirtualMachineClass
+					Expect(spoke.ConvertTo(&restored)).To(Succeed())
+					Expect(restored.Spec).To(Equal(hub.Spec))
+				},
+				Entry("omitted policy", (*vmopv1.EnumPolicy)(nil)),
+				Entry("empty allowed list", &vmopv1.EnumPolicy{Allowed: &[]string{}}),
+				Entry("implicit single allowed profile", &vmopv1.EnumPolicy{Allowed: &[]string{"profile-a"}}),
+			)
+
+			It("honors an older writer clearing the profile without losing resource ranges", func() {
+				hub := classWithPolicies()
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				Expect(json.Unmarshal([]byte(`{"spec":{"reservedProfileID":""}}`), spoke)).To(Succeed())
+				var restored vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec.ReservedProfileName).To(BeNil())
+				expected := hub.Spec.DeepCopy()
+				expected.ReservedProfileName = nil
+				Expect(restored.Spec).To(Equal(*expected))
+			})
+
+			It("preserves nil, explicit zero and empty list policy values", func() {
+				zero := resource.MustParse("0")
+				empty := []vmopv1.VGPUDevice{}
+				hub := &vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{
+					Resources: vmopv1.VirtualMachineClassResources{Requests: vmopv1.VirtualMachineClassResourceSpec{CPU: &vmopv1.ResourceQuantityRange{Default: &zero}}},
+					Hardware:  vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: empty}},
+				}}
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				var restored vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec.Resources.Size.CPU).To(BeNil())
+				Expect(restored.Spec.Resources.Requests.CPU.Default).NotTo(BeNil())
+				Expect(restored.Spec.Resources.Requests.CPU.Default.IsZero()).To(BeTrue())
+				Expect(restored.Spec.Resources.Requests.CPU.Min).To(BeNil())
+				Expect(restored.Spec.Hardware.Devices.VGPUDevices).NotTo(BeNil())
+				Expect(restored.Spec.Hardware.Devices.VGPUDevices).To(BeEmpty())
+			})
+
+			It("returns malformed conversion data without modifying the input", func() {
+				spoke := version.newSpoke()
+				spoke.(metav1.Object).SetAnnotations(map[string]string{utilconversion.AnnotationKey: "{"})
+				before := spoke.DeepCopyObject()
+				Expect(spoke.ConvertTo(&vmopv1.VirtualMachineClass{})).NotTo(Succeed())
+				Expect(apiequality.Semantic.DeepEqual(spoke, before)).To(BeTrue())
+			})
+		})
+	}
+
+	It("preserves policies in client-side scheme and list conversion", func() {
+		scheme := runtime.NewScheme()
+		Expect(vmopv1a5.AddToScheme(scheme)).To(Succeed())
+		Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+		hub := &vmopv1.VirtualMachineClassList{Items: []vmopv1.VirtualMachineClass{*classWithPolicies()}}
+		var spoke vmopv1a5.VirtualMachineClassList
+		Expect(scheme.Convert(hub, &spoke, nil)).To(Succeed())
+		var restored vmopv1.VirtualMachineClassList
+		Expect(scheme.Convert(&spoke, &restored, nil)).To(Succeed())
+		Expect(restored.Items[0].Spec).To(Equal(hub.Items[0].Spec))
+	})
+
+	for _, version := range []struct {
+		name     string
+		newSpoke func() ctrlconversion.Convertible
+	}{
+		{"v1alpha4", func() ctrlconversion.Convertible { return &vmopv1a4.VirtualMachineClassInstance{} }},
+		{"v1alpha5", func() ctrlconversion.Convertible { return &vmopv1a5.VirtualMachineClassInstance{} }},
+	} {
+		Context(version.name+" class instances", func() {
+			It("preserves policies and isolates source metadata in both directions", func() {
+				hub := &vmopv1.VirtualMachineClassInstance{
+					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{"user": "keep"}, Labels: map[string]string{"user": "keep"}},
+					Spec:       vmopv1.VirtualMachineClassInstanceSpec{VirtualMachineClassSpec: classWithPolicies().Spec},
+				}
+				beforeHub := hub.DeepCopy()
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(hub)).To(Succeed())
+				Expect(hub).To(Equal(beforeHub))
+				beforeSpoke := spoke.DeepCopyObject()
+				var restored vmopv1.VirtualMachineClassInstance
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(restored.Spec).To(Equal(hub.Spec))
+				Expect(restored.Annotations).NotTo(HaveKey(utilconversion.AnnotationKey))
+				restored.Labels["user"] = "changed"
+				restored.Annotations["user"] = "changed"
+				Expect(spoke).To(Equal(beforeSpoke))
+				spoke.(metav1.Object).GetLabels()["user"] = "changed"
+				spoke.(metav1.Object).GetAnnotations()["user"] = "changed"
+				Expect(hub).To(Equal(beforeHub))
+			})
+			It("returns malformed annotations without changing source metadata", func() {
+				spoke := version.newSpoke()
+				spoke.(metav1.Object).SetAnnotations(map[string]string{utilconversion.AnnotationKey: "{", "user": "keep"})
+				before := spoke.DeepCopyObject()
+				Expect(spoke.ConvertTo(&vmopv1.VirtualMachineClassInstance{})).To(MatchError(ContainSubstring("restore VMClassInstance conversion data")))
+				Expect(spoke).To(Equal(before))
+			})
+		})
+	}
+
+})
+
+var _ = Describe("VMClass allocation conversions", Label("api"), func() {
+	for _, version := range []struct {
+		name         string
+		newResources func() any
+	}{
+		{"v1alpha1", func() any { return &vmopv1a1.VirtualMachineClassResources{} }},
+		{"v1alpha2", func() any { return &vmopv1a2.VirtualMachineClassResources{} }},
+		{"v1alpha3", func() any { return &vmopv1a3.VirtualMachineClassResources{} }},
+		{"v1alpha4", func() any { return &vmopv1a4.VirtualMachineClassResources{} }},
+		{"v1alpha5", func() any { return &vmopv1a5.VirtualMachineClassResources{} }},
+	} {
+		Context(version.name, func() {
+			It("updates allocations without replacing size and isolates quantity storage", func() {
+				scheme := runtime.NewScheme()
+				Expect(vmopv1a1.AddToScheme(scheme)).To(Succeed())
+				Expect(vmopv1a2.AddToScheme(scheme)).To(Succeed())
+				Expect(vmopv1a3.AddToScheme(scheme)).To(Succeed())
+				Expect(vmopv1a4.AddToScheme(scheme)).To(Succeed())
+				Expect(vmopv1a5.AddToScheme(scheme)).To(Succeed())
+				Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+				spoke := version.newResources()
+				Expect(json.Unmarshal([]byte(`{"requests":{"cpu":"123456789012345678901234567890","memory":"1Gi"},"limits":{"cpu":"4","memory":"8Gi"}}`), spoke)).To(Succeed())
+				before, err := json.Marshal(spoke)
+				Expect(err).NotTo(HaveOccurred())
+				size := vmopv1.FixedClassResourcePair(resource.MustParse("7"), resource.MustParse("9Gi"))
+				hub := vmopv1.VirtualMachineClassResources{Size: *size.DeepCopy()}
+				Expect(scheme.Convert(spoke, &hub, nil)).To(Succeed())
+				Expect(hub.Size).To(Equal(size))
+				originalCPU := resource.MustParse("123456789012345678901234567890")
+				Expect(hub.Requests.CPU.Default.Cmp(originalCPU)).To(BeZero())
+				Expect(hub.Requests.Memory.Default.String()).To(Equal("1Gi"))
+				Expect(hub.Limits.CPU.Default.String()).To(Equal("4"))
+				Expect(hub.Limits.Memory.Default.String()).To(Equal("8Gi"))
+
+				projected := version.newResources()
+				Expect(scheme.Convert(&hub, projected, nil)).To(Succeed())
+				actual, err := json.Marshal(projected)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(actual).To(MatchJSON(before))
+				hub.Requests.CPU.Default.Add(resource.MustParse("1"))
+				Expect(hub.Requests.CPU.Min.Cmp(originalCPU)).To(BeZero())
+				Expect(hub.Requests.CPU.Max.Cmp(originalCPU)).To(BeZero())
+				var fromOriginal, fromProjected vmopv1.VirtualMachineClassResources
+				Expect(scheme.Convert(spoke, &fromOriginal, nil)).To(Succeed())
+				Expect(scheme.Convert(projected, &fromProjected, nil)).To(Succeed())
+				Expect(fromOriginal.Requests.CPU.Default.Cmp(originalCPU)).To(BeZero())
+				Expect(fromProjected.Requests.CPU.Default.Cmp(originalCPU)).To(BeZero())
+				actual, err = json.Marshal(spoke)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(actual).To(MatchJSON(before))
+				actual, err = json.Marshal(projected)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(actual).To(MatchJSON(before))
+			})
+		})
+	}
+})
+
+func classWithPolicies() *vmopv1.VirtualMachineClass {
+	minimum, maximum, def := resource.MustParse("2"), resource.MustParse("16"), resource.MustParse("4")
+	memory := resource.MustParse("4Gi")
+	profile := "profile-a"
+	profiles := []string{"profile-a", "profile-b"}
+	required := true
+	devices := []vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}
+	return &vmopv1.VirtualMachineClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "class", Namespace: "tenant"},
+		Spec: vmopv1.VirtualMachineClassSpec{
+			Resources: vmopv1.VirtualMachineClassResources{Size: vmopv1.VirtualMachineClassResourceSpec{
+				CPU:    &vmopv1.ResourceQuantityRange{Min: &minimum, Max: &maximum, Default: &def},
+				Memory: &vmopv1.ResourceQuantityRange{Default: &memory},
+			}},
+			Hardware:            vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: devices}},
+			ReservedProfileName: &vmopv1.EnumPolicy{Default: &profile, Allowed: &profiles, Required: &required},
+			ReservedSlots:       4,
 		},
 	}
 }

@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -18,6 +19,7 @@ import (
 	pkgconst "github.com/vmware-tanzu/vm-operator/pkg/constants"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
+	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	"github.com/vmware-tanzu/vm-operator/test/builder"
 )
 
@@ -50,7 +52,7 @@ func unitTestsReconcile() {
 				Annotations: make(map[string]string),
 			},
 			Spec: vmopv1.VirtualMachineClassSpec{
-				ReservedProfileID: "dummy-profile",
+				ReservedProfileName: &vmopv1.EnumPolicy{Default: ptr.To("dummy-profile")},
 			},
 		}
 		setConfigSpec(vmClass)
@@ -123,6 +125,15 @@ func unitTestsReconcile() {
 				Expect(instance.Labels).To(HaveKey(vmopv1.VMClassInstanceActiveLabelKey))
 			})
 
+			It("should create an instance when ConfigSpec is omitted", func() {
+				vmClass.Spec.ConfigSpec = nil
+				Expect(reconciler.ReconcileNormal(vmClassCtx)).To(Succeed())
+
+				list := &vmopv1.VirtualMachineClassInstanceList{}
+				Expect(ctx.Client.List(ctx, list, client.InNamespace(vmClassCtx.VMClass.Namespace))).To(Succeed())
+				Expect(list.Items).To(HaveLen(1))
+			})
+
 			Context("when called multiple times", func() {
 				It("should be idempotent", func() {
 					// First reconcile
@@ -157,8 +168,7 @@ func unitTestsReconcile() {
 					Expect(instance.Labels).To(HaveKey(vmopv1.VMClassInstanceActiveLabelKey))
 
 					// Modify the VM class config
-					vmClass.Spec.Hardware.Cpus = 8
-					setConfigSpec(vmClass)
+					vmClass.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("8"))
 					Expect(ctx.Client.Update(ctx, vmClass)).To(Succeed())
 
 					// Pass in the new class to the context during reconcile
@@ -186,10 +196,10 @@ func unitTestsReconcile() {
 
 			Context("when VirtualMachineClass has invalid config", func() {
 				BeforeEach(func() {
-					vmClass.Spec.ConfigSpec = nil
+					vmClass.Spec.ConfigSpec = []byte("not-json")
 				})
 
-				It("should return an error in generating the hash", func() {
+				It("should return an error when decoding invalid ConfigSpec", func() {
 					// In unit tests, we primarily test that the method doesn't panic
 					// Error handling validation is better tested in integration tests
 					Expect(reconciler.ReconcileNormal(vmClassCtx)).NotTo(Succeed())

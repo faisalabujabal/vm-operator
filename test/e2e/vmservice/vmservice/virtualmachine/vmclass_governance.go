@@ -6,19 +6,20 @@ package virtualmachine
 
 import (
 	"context"
-	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
-	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	vmopv1a5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	topologyv1 "github.com/vmware-tanzu/vm-operator/external/tanzu-topology/api/v1alpha1"
+	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/common"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/consts"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/skipper"
@@ -68,6 +69,8 @@ func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchema
 		namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "vmclass-governance-"}}
 		Expect(client.Create(ctx, namespace)).To(Succeed())
 		DeferCleanup(func(cleanupCtx context.Context) { Expect(client.Delete(cleanupCtx, namespace)).To(Succeed()) })
+		zone := &topologyv1.Zone{ObjectMeta: metav1.ObjectMeta{Name: "governance-zone", Namespace: namespace.Name}, Spec: topologyv1.ZoneSpec{Zone: topologyv1.AvailabilityZoneReference{APIVersion: "topology.tanzu.vmware.com/v1alpha1", Name: "governance-fixture"}}}
+		Expect(client.Create(ctx, zone)).To(Succeed())
 		ceiling := &vmopv1.VirtualMachineClass{
 			ObjectMeta: metav1.ObjectMeta{Name: "ceiling", Namespace: namespace.Name},
 			Spec: vmopv1.VirtualMachineClassSpec{
@@ -90,6 +93,10 @@ func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchema
 			g.Expect(condition).NotTo(BeNil())
 			g.Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 		}, 2*time.Minute, time.Second).Should(Succeed())
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(zone), zone)).To(Succeed())
+			g.Expect(zone.Status.GoverningClasses).To(Equal([]string{ceiling.Name}))
+		}, 2*time.Minute, time.Second).Should(Succeed())
 		Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(ceiling), ceiling)).To(Succeed())
 		ceiling.Spec.Resources.Size.CPU.Max = ptr.To(resource.MustParse("2"))
 		Expect(client.Update(ctx, ceiling)).To(Succeed())
@@ -101,6 +108,12 @@ func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchema
 			g.Expect(condition.Reason).To(Equal(vmopv1.VirtualMachineClassGovernanceViolationReason))
 			g.Expect(class.Spec.Resources.Size.CPU.Default.String()).To(Equal("4"))
 		}, 2*time.Minute, time.Second).Should(Succeed())
+		Expect(client.Delete(ctx, ceiling)).To(Succeed())
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(zone), zone)).To(Succeed())
+			g.Expect(zone.Status.GoverningClasses).To(BeEmpty())
+		}, 2*time.Minute, time.Second).Should(Succeed())
+
 	})
 
 }

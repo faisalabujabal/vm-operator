@@ -6,19 +6,24 @@ package zone_test
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	"github.com/vmware/govmomi/object"
-	vimtypes "github.com/vmware/govmomi/vim25/types"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	"github.com/vmware-tanzu/vm-operator/controllers/infra/zone"
 	topologyv1 "github.com/vmware-tanzu/vm-operator/external/tanzu-topology/api/v1alpha1"
 	vimv1 "github.com/vmware-tanzu/vm-operator/external/vim/api/v1alpha1"
@@ -32,6 +37,8 @@ import (
 	vmwatcher "github.com/vmware-tanzu/vm-operator/services/vm-watcher"
 	"github.com/vmware-tanzu/vm-operator/test/builder"
 	"github.com/vmware-tanzu/vm-operator/test/testutil"
+	"github.com/vmware/govmomi/object"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 )
 
 var _ = Describe(
@@ -376,6 +383,45 @@ var _ = Describe(
 				})
 			})
 
+			It("updates the governance mirror on class changes and deletion", func() {
+				class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "governor", Namespace: nsInfo.Namespace}, Spec: vmopv1.VirtualMachineClassSpec{Governs: &vmopv1.VirtualMachineClassGovernance{ExistingVMs: "AllowOnViolation"}}}
+				Expect(vcSimCtx.Client.Create(ctx, class)).To(Succeed())
+				Eventually(func(g Gomega) {
+					var zones topologyv1.ZoneList
+					g.Expect(vcSimCtx.Client.List(ctx, &zones, ctrlclient.InNamespace(nsInfo.Namespace))).To(Succeed())
+					g.Expect(zones.Items).NotTo(BeEmpty())
+					for _, z := range zones.Items {
+						g.Expect(z.Status.GoverningClasses).To(Equal([]string{class.Name}))
+					}
+				}).Should(Succeed())
+				class.Spec.Governs.Zones = &[]string{}
+				Expect(vcSimCtx.Client.Update(ctx, class)).To(Succeed())
+				Eventually(func(g Gomega) {
+					var zones topologyv1.ZoneList
+					g.Expect(vcSimCtx.Client.List(ctx, &zones, ctrlclient.InNamespace(nsInfo.Namespace))).To(Succeed())
+					for _, z := range zones.Items {
+						g.Expect(z.Status.GoverningClasses).To(BeEmpty())
+					}
+				}).Should(Succeed())
+				class.Spec.Governs.Zones = nil
+				Expect(vcSimCtx.Client.Update(ctx, class)).To(Succeed())
+				Eventually(func(g Gomega) {
+					var zones topologyv1.ZoneList
+					g.Expect(vcSimCtx.Client.List(ctx, &zones, ctrlclient.InNamespace(nsInfo.Namespace))).To(Succeed())
+					for _, z := range zones.Items {
+						g.Expect(z.Status.GoverningClasses).To(Equal([]string{class.Name}))
+					}
+				}).Should(Succeed())
+				Expect(vcSimCtx.Client.Delete(ctx, class)).To(Succeed())
+				Eventually(func(g Gomega) {
+					var zones topologyv1.ZoneList
+					g.Expect(vcSimCtx.Client.List(ctx, &zones, ctrlclient.InNamespace(nsInfo.Namespace))).To(Succeed())
+					for _, z := range zones.Items {
+						g.Expect(z.Status.GoverningClasses).To(BeEmpty())
+					}
+				}).Should(Succeed())
+			})
+
 			It("creates one ConfigTarget per cluster", func() {
 				Eventually(func(g Gomega) {
 					var list topologyv1.ZoneList
@@ -473,3 +519,71 @@ var _ = Describe(
 			})
 		})
 	})
+
+var _ = Describe("Zone governance mirror", Label(testlabels.Controller), func() {
+	It("uses optimistic locking, retries conflicts, skips unchanged writes and honors the live gate", func() {
+		ctx := watcher.WithContext(pkgcfg.NewContextWithDefaultConfig())
+		scheme := runtime.NewScheme()
+		Expect(topologyv1.AddToScheme(scheme)).To(Succeed())
+		Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+		Expect(vimv1.AddToScheme(scheme)).To(Succeed())
+		obj := &topologyv1.Zone{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "tenant", Finalizers: []string{zone.Finalizer}}}
+		first := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "z", Namespace: "tenant"}, Spec: vmopv1.VirtualMachineClassSpec{Governs: &vmopv1.VirtualMachineClassGovernance{}}}
+		second := first.DeepCopy()
+		second.Name = "b"
+		foreign := first.DeepCopy()
+		foreign.Namespace = "other"
+		writes, injectConflict := 0, true
+		c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&topologyv1.Zone{}).WithObjects(obj, first, second, foreign).WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(ctx context.Context, c ctrlclient.Client, subresource string, object ctrlclient.Object, patch ctrlclient.Patch, opts ...ctrlclient.SubResourcePatchOption) error {
+				writes++
+				data, err := patch.Data(object)
+				Expect(err).NotTo(HaveOccurred())
+				var document map[string]any
+				Expect(json.Unmarshal(data, &document)).To(Succeed())
+				Expect(document["metadata"].(map[string]any)["resourceVersion"]).NotTo(BeEmpty())
+				if injectConflict {
+					injectConflict = false
+					var current topologyv1.Zone
+					Expect(c.Get(ctx, ctrlclient.ObjectKeyFromObject(object), &current)).To(Succeed())
+					current.Status.Conditions = []metav1.Condition{{Type: "ProviderReady", Status: metav1.ConditionTrue, Reason: "Ready"}}
+					Expect(c.Status().Update(ctx, &current)).To(Succeed())
+				}
+				return c.SubResource(subresource).Patch(ctx, object, patch, opts...)
+			},
+		}).Build()
+		r := zone.NewReconciler(ctx, c, logr.Discard(), nil)
+		request := ctrl.Request{NamespacedName: ctrlclient.ObjectKeyFromObject(obj)}
+		_, err := r.Reconcile(context.Background(), request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(writes).To(BeZero())
+		pkgcfg.SetContext(ctx, func(config *pkgcfg.Config) { config.Features.VMServiceClasslessVM = true })
+		_, err = r.Reconcile(context.Background(), request)
+		Expect(apierrors.IsConflict(err)).To(BeTrue())
+		Expect(c.Get(ctx, request.NamespacedName, obj)).To(Succeed())
+		Expect(obj.Status.GoverningClasses).To(BeEmpty())
+		_, err = r.Reconcile(context.Background(), request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.Get(ctx, request.NamespacedName, obj)).To(Succeed())
+		Expect(obj.Status.GoverningClasses).To(Equal([]string{"b", "z"}))
+		Expect(obj.Status.Conditions).To(HaveLen(1))
+		Expect(writes).To(Equal(2))
+		_, err = r.Reconcile(context.Background(), request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(writes).To(Equal(2))
+		first.Spec.Governs.Zones = &[]string{}
+		Expect(c.Update(ctx, first)).To(Succeed())
+		Expect(c.Delete(ctx, second)).To(Succeed())
+		pkgcfg.SetContext(ctx, func(config *pkgcfg.Config) { config.Features.VMServiceClasslessVM = false })
+		_, err = r.Reconcile(context.Background(), request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(writes).To(Equal(2))
+		pkgcfg.SetContext(ctx, func(config *pkgcfg.Config) { config.Features.VMServiceClasslessVM = true })
+		_, err = r.Reconcile(context.Background(), request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.Get(ctx, request.NamespacedName, obj)).To(Succeed())
+		Expect(obj.Status.GoverningClasses).To(BeEmpty())
+		Expect(obj.Status.Conditions[0].Type).To(Equal("ProviderReady"))
+		Expect(writes).To(Equal(3))
+	})
+})

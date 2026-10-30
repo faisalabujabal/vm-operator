@@ -9,25 +9,34 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
-	vimtypes "github.com/vmware/govmomi/vim25/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	topologyv1 "github.com/vmware-tanzu/vm-operator/external/tanzu-topology/api/v1alpha1"
 	vimv1 "github.com/vmware-tanzu/vm-operator/external/vim/api/v1alpha1"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
+	"github.com/vmware-tanzu/vm-operator/pkg/governance"
 	pkglog "github.com/vmware-tanzu/vm-operator/pkg/log"
 	"github.com/vmware-tanzu/vm-operator/pkg/patch"
 	"github.com/vmware-tanzu/vm-operator/pkg/record"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/vsphere/watcher"
+	vimtypes "github.com/vmware/govmomi/vim25/types"
 )
 
 // SkipNameValidation is used for testing to allow multiple controllers with the
@@ -54,6 +63,11 @@ func AddToManager(ctx *pkgctx.ControllerManagerContext, mgr manager.Manager) err
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(controlledType).
+		Watches(&vmopv1.VirtualMachineClass{}, handler.EnqueueRequestsFromMapFunc(r.zonesForClass), builder.WithPredicates(predicate.Funcs{
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				return e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() || !e.ObjectOld.GetDeletionTimestamp().Equal(e.ObjectNew.GetDeletionTimestamp())
+			},
+		})).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: ctx.GetMaxConcurrentReconciles(controllerNameShort, 0),
 			SkipNameValidation:      SkipNameValidation,
@@ -88,7 +102,7 @@ type Reconciler struct {
 }
 
 // +kubebuilder:rbac:groups=topology.tanzu.vmware.com,resources=zones,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=topology.tanzu.vmware.com,resources=zones/status,verbs=get
+// +kubebuilder:rbac:groups=topology.tanzu.vmware.com,resources=zones/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=vim.vmware.com,resources=configtargets,verbs=get;list;watch;create;update;patch
 
 func (r *Reconciler) Reconcile(
@@ -122,7 +136,11 @@ func (r *Reconciler) Reconcile(
 		return r.ReconcileDelete(ctx, &obj)
 	}
 
-	return r.ReconcileNormal(ctx, &obj)
+	result, err := r.ReconcileNormal(ctx, &obj)
+	if err == nil && result.RequeueAfter == 0 {
+		result.RequeueAfter = time.Minute
+	}
+	return result, err
 }
 
 func (r *Reconciler) ReconcileDelete(
@@ -178,6 +196,9 @@ func (r *Reconciler) ReconcileNormal(
 	}
 
 	if pkgcfg.FromContext(ctx).Features.VMServiceClasslessVM {
+		if err := r.reconcileGoverningClasses(ctx, obj); err != nil {
+			errs = append(errs, err)
+		}
 		if err := r.reconcileConfigTargets(ctx, obj); err != nil {
 			errs = append(errs, err)
 		}
@@ -210,5 +231,38 @@ func (r *Reconciler) reconcileConfigTargets(
 		}
 	}
 
+	return nil
+}
+
+// zonesForClass rechecks all namespace Zones when class availability or governance changes.
+func (r *Reconciler) zonesForClass(ctx context.Context, obj client.Object) []reconcile.Request {
+	var zones topologyv1.ZoneList
+	if err := r.List(ctx, &zones, client.InNamespace(obj.GetNamespace())); err != nil {
+		r.Logger.Error(err, "list Zones for class governance")
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(zones.Items))
+	for i := range zones.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&zones.Items[i])})
+	}
+	return requests
+}
+
+func (r *Reconciler) reconcileGoverningClasses(ctx context.Context, obj *topologyv1.Zone) error {
+	var classes vmopv1.VirtualMachineClassList
+	if err := r.List(ctx, &classes, client.InNamespace(obj.Namespace)); err != nil {
+		return fmt.Errorf("list Zone governing classes: %w", err)
+	}
+	names := governance.GoverningNames(classes.Items, obj.Namespace, obj.Name)
+	if slices.Equal(obj.Status.GoverningClasses, names) {
+		return nil
+	}
+	// Patch an isolated object. Leaving obj unchanged prevents the deferred
+	// patch helper from replaying this list without a resource-version lock.
+	next := obj.DeepCopy()
+	next.Status.GoverningClasses = names
+	if err := r.Status().Patch(ctx, next, client.MergeFromWithOptions(obj.DeepCopy(), client.MergeFromWithOptimisticLock{})); err != nil {
+		return fmt.Errorf("patch Zone governance mirror: %w", err)
+	}
 	return nil
 }

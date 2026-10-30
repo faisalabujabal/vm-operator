@@ -262,7 +262,6 @@ rules:
   resources:
   - availabilityzones
   - availabilityzones/status
-  - zones/status
   verbs:
   - get
   - list
@@ -271,6 +270,7 @@ rules:
   - topology.tanzu.vmware.com
   resources:
   - zones
+  - zones/status
   verbs:
   - get
   - list

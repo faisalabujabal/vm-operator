@@ -149,7 +149,7 @@ Blocked on a vSphere and govmomi release with the vmx-23 fields. Not a gate for 
 ### Story — Class governance status (vmop-4323)
 
 - [x] T203 [US2] [vmop-4323] Class controller: per-zone `WithinGovernance` and `Governing`, re-checked on every reconcile — `controllers/virtualmachineclass`
-- [ ] T204 [US2] [vmop-4323] Zone mirror controller: `Zone.status.governingClasses` from classes; optimistic-lock patch, skip unchanged writes; never read by governance. Depends on T109 — `controllers/infra/zone`
+- [x] T204 [US2] [vmop-4323] Zone mirror controller: `Zone.status.governingClasses` from classes; optimistic-lock patch, skip unchanged writes; never read by governance. Depends on T109 — `controllers/infra/zone`
 - [x] T205 [US4] [vmop-4323] Re-base the `ClassInstance` hash onto typed fields — `controllers/virtualmachineclass`
 - [x] T205a [US2] [vmop-4323] E2E: narrowing a governing class marks a selectable class `WithinGovernance=False`
 

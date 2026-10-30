@@ -25,6 +25,8 @@ import (
 	vmopv1a5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	"github.com/vmware-tanzu/vm-operator/pkg/config/capabilities"
+	pkgconst "github.com/vmware-tanzu/vm-operator/pkg/constants"
+	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/vcenter"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/wcp"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/manifestbuilders"
@@ -54,6 +56,10 @@ type VMClassSchemaUpgradeInput struct {
 }
 
 type vmClassUpgradeCheckpoint struct {
+	ReservedVMName    string   `json:"reservedVMName,omitempty"`
+	ReservedVMUID     string   `json:"reservedVMUID,omitempty"`
+	ReservedVMMOID    string   `json:"reservedVMMOID,omitempty"`
+	ReservedProfile   string   `json:"reservedProfile,omitempty"`
 	RunID             string   `json:"runID"`
 	Namespace         string   `json:"namespace"`
 	Phase             string   `json:"phase"`
@@ -103,7 +109,9 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		proxy = input.ClusterProxy.(*common.VMServiceClusterProxy)
 		client = proxy.GetClient()
 		skipper.SkipUnlessInfraIs(input.Config.InfraConfig.InfraName, consts.WCP)
-		skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, proxy, consts.TelcoVMServiceAPICapabilityName)
+		if phase == "verify" {
+			skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, proxy, consts.VMServiceClasslessVMCapabilityName)
+		}
 		skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, proxy, capabilities.CapabilityKeyImmutableClasses)
 	})
 
@@ -174,13 +182,13 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 			}
 			g.Expect(imageName).NotTo(BeEmpty(), "configured Photon image must be ready in the persistent namespace")
 		}, input.Config.GetIntervals("default", "wait-virtual-machine-image-creation")...).Should(Succeed())
-		vmYAML := manifestbuilders.GetVirtualMachineYamlA5(manifestbuilders.VirtualMachineYaml{
+		baseline := manifestbuilders.VirtualMachineA5(manifestbuilders.VirtualMachineYaml{
 			Namespace: checkpoint.Namespace, Name: checkpoint.VMName,
 			ImageName: imageName, VMClassName: checkpoint.ClassName,
 			StorageClassName: input.Config.InfraConfig.ManagementClusterConfig.Resources.StorageClassName,
 			PowerState:       "PoweredOn",
 		})
-		Expect(proxy.CreateWithArgs(ctx, vmYAML)).To(Succeed(), "failed to create baseline v1alpha5 VM")
+		Expect(client.Create(ctx, baseline)).To(Succeed(), "failed to create baseline v1alpha5 VM")
 
 		By("waiting for the baseline VM to become powered on and capture its vCenter identity")
 		var baselineVM *vmopv1a5.VirtualMachine
@@ -205,6 +213,21 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		checkpoint.RealizedMemoryMB = vmMO.Config.Hardware.MemoryMB
 		Expect(checkpoint.RealizedCPU).To(BeEquivalentTo(checkpoint.CPU))
 		Expect(checkpoint.RealizedMemoryMB).To(BeEquivalentTo(checkpoint.MemoryMB))
+
+		if name := os.Getenv("VMCLASS_UPGRADE_RESERVED_VM"); name != "" {
+			By("recording a pre-existing powered-on reserved VM for profile backfill verification")
+			reservedVM := &vmopv1a5.VirtualMachine{}
+			Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: name}, reservedVM)).To(Succeed())
+			Expect(reservedVM.Status.PowerState).To(Equal(vmopv1a5.VirtualMachinePowerStateOn))
+			Expect(reservedVM.Status.UniqueID).NotTo(BeEmpty())
+			reservedClass := &vmopv1a5.VirtualMachineClass{}
+			Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: reservedVM.Spec.ClassName}, reservedClass)).To(Succeed())
+			Expect(reservedClass.Spec.ReservedProfileID).NotTo(BeEmpty())
+			checkpoint.ReservedVMName = name
+			checkpoint.ReservedVMUID = string(reservedVM.UID)
+			checkpoint.ReservedVMMOID = reservedVM.Status.UniqueID
+			checkpoint.ReservedProfile = reservedClass.Spec.ReservedProfileID
+		}
 
 		By("persisting a durable checkpoint for the candidate-release verify phase")
 		checkpoint.Phase = "ready"
@@ -307,6 +330,27 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 			g.Expect(vm.Spec.Resources.Size.Memory.Value()).To(Equal(int64(checkpoint.MemoryMB * 1024 * 1024)))
 		}, 5*time.Minute, 10*time.Second).Should(Succeed())
 
+		By("verifying the unreserved VM completed profile backfill without selecting a profile")
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: checkpoint.VMName}, vm)).To(Succeed())
+			g.Expect(vmopv1util.ParseFeatureVersion(vm.Annotations[pkgconst.UpgradedToFeatureVersionAnnotationKey]).Has(vmopv1util.FeatureVersionReservedProfile)).To(BeTrue())
+			g.Expect(vm.Spec.ReservedProfileName).To(BeNil())
+		}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+		if checkpoint.ReservedVMName != "" {
+			By("verifying the existing reserved VM was backfilled while remaining powered on")
+			Eventually(func(g Gomega) {
+				reservedVM := &vmopv1.VirtualMachine{}
+				g.Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: checkpoint.ReservedVMName}, reservedVM)).To(Succeed())
+				g.Expect(string(reservedVM.UID)).To(Equal(checkpoint.ReservedVMUID))
+				g.Expect(reservedVM.Status.UniqueID).To(Equal(checkpoint.ReservedVMMOID))
+				g.Expect(reservedVM.Status.PowerState).To(Equal(vmopv1.VirtualMachinePowerStateOn))
+				g.Expect(reservedVM.Spec.ReservedProfileName).NotTo(BeNil())
+				g.Expect(*reservedVM.Spec.ReservedProfileName).To(Equal(checkpoint.ReservedProfile))
+				g.Expect(vmopv1util.ParseFeatureVersion(reservedVM.Annotations[pkgconst.UpgradedToFeatureVersionAnnotationKey]).Has(vmopv1util.FeatureVersionReservedProfile)).To(BeTrue())
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+		}
+
 		By("checking the preserved VM's actual vSphere compute configuration")
 		vimClient := vcenter.NewVimClientFromKubeconfig(ctx, proxy.GetKubeconfigPath())
 		DeferCleanup(func(context.Context) { vcenter.LogoutVimClient(vimClient) })
@@ -326,8 +370,7 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 			PowerState:       "PoweredOn",
 		})
 		Expect(err).NotTo(HaveOccurred())
-		postUpgradeVMYAML := manifestbuilders.ToYAML(newVM)
-		Expect(proxy.CreateWithArgs(ctx, postUpgradeVMYAML)).To(Succeed(), "failed to create v1alpha6 VM after upgrade")
+		Expect(client.Create(ctx, newVM)).To(Succeed(), "failed to create v1alpha6 VM after upgrade")
 		postUpgradeVM := &vmopv1.VirtualMachine{}
 		Eventually(func(g Gomega) {
 			g.Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: postUpgradeVMName}, postUpgradeVM)).To(Succeed())

@@ -26,8 +26,10 @@ import (
 	"github.com/vmware-tanzu/vm-operator/pkg"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	pkgconst "github.com/vmware-tanzu/vm-operator/pkg/constants"
+	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
 	upgradevm "github.com/vmware-tanzu/vm-operator/pkg/providers/vsphere/upgrade/virtualmachine"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
+	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 	"github.com/vmware-tanzu/vm-operator/test/builder"
 )
 
@@ -85,6 +87,117 @@ var _ = Describe("ReconcileSchemaUpgrade", func() {
 		moVM = mo.VirtualMachine{
 			Config: &vimtypes.VirtualMachineConfigInfo{},
 		}
+	})
+
+	Context("reserved-profile backfill", Label(testlabels.API), func() {
+		var class *vmopv1.VirtualMachineClass
+		BeforeEach(func() {
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+			vm.Name = "existing-vm"
+			vm.Spec.ClassName = "reserved"
+			vm.Spec.PowerState = vmopv1.VirtualMachinePowerStateOn
+			vm.Status.PowerState = vmopv1.VirtualMachinePowerStateOn
+			// Simulate an existing VM with the old Telco upgrade already done.
+			vm.Annotations = map[string]string{
+				pkgconst.UpgradedToBuildVersionAnnotationKey:   pkgcfg.FromContext(ctx).BuildVersion,
+				pkgconst.UpgradedToSchemaVersionAnnotationKey:  vmopv1.GroupVersion.Version,
+				pkgconst.UpgradedToFeatureVersionAnnotationKey: "9",
+			}
+			class = &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Namespace: vm.Namespace, Name: vm.Spec.ClassName}}
+			class.Spec.ReservedProfileName = vmopv1.FixedClassProfile("profile-a")
+			Expect(k8sClient.Create(ctx, class)).To(Succeed())
+			Expect(k8sClient.Create(ctx, vm)).To(Succeed())
+		})
+
+		It("backfills a powered-on VM once and preserves its selection after class edits", func() {
+			Expect(vmopv1util.IsObjectUpgraded(ctx, vm)).To(HaveOccurred())
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(MatchError(upgradevm.ErrUpgradeObject))
+			persisted := &vmopv1.VirtualMachine{}
+			Expect(k8sClient.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), persisted)).To(Succeed())
+			Expect(persisted.Spec.ReservedProfileName).To(Equal(ptr.To("profile-a")))
+			Expect(vm.Status.PowerState).To(Equal(vmopv1.VirtualMachinePowerStateOn))
+			Expect(vmopv1util.IsObjectUpgraded(ctx, vm)).To(Succeed())
+			class.Spec.ReservedProfileName = vmopv1.FixedClassProfile("profile-b")
+			Expect(k8sClient.Update(ctx, class)).To(Succeed())
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(Succeed())
+			{
+				persisted := &vmopv1.VirtualMachine{}
+				Expect(k8sClient.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), persisted)).To(Succeed())
+				Expect(persisted.Spec.ReservedProfileName).To(Equal(ptr.To("profile-a")))
+			}
+		})
+
+		DescribeTable("preserves explicit selections without looking up the class", func(value string) {
+			vm.Spec.ReservedProfileName = ptr.To(value)
+			Expect(k8sClient.Delete(ctx, class)).To(Succeed())
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(MatchError(upgradevm.ErrUpgradeObject))
+			Expect(vm.Spec.ReservedProfileName).To(Equal(ptr.To(value)))
+		}, Entry("empty", ""), Entry("non-empty", "chosen-profile"))
+
+		It("does not backfill while the capability is disabled and does so on activation", func() {
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(Succeed())
+			Expect(vm.Spec.ReservedProfileName).To(BeNil())
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(MatchError(upgradevm.ErrUpgradeObject))
+			{
+				persisted := &vmopv1.VirtualMachine{}
+				Expect(k8sClient.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), persisted)).To(Succeed())
+				Expect(persisted.Spec.ReservedProfileName).To(Equal(ptr.To("profile-a")))
+			}
+		})
+
+		It("retries a missing namespaced class without marking the feature complete", func() {
+			Expect(k8sClient.Delete(ctx, class)).To(Succeed())
+			class.ResourceVersion = ""
+			class.Namespace = "another-tenant"
+			Expect(k8sClient.Create(ctx, class)).To(Succeed())
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(MatchError(ContainSubstring("reserved-profile backfill")))
+			Expect(vm.Spec.ReservedProfileName).To(BeNil())
+			Expect(vm.Annotations[pkgconst.UpgradedToFeatureVersionAnnotationKey]).To(Equal("9"))
+			class.ResourceVersion = ""
+			class.Namespace = vm.Namespace
+			Expect(k8sClient.Create(ctx, class)).To(Succeed())
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(MatchError(upgradevm.ErrUpgradeObject))
+			{
+				persisted := &vmopv1.VirtualMachine{}
+				Expect(k8sClient.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), persisted)).To(Succeed())
+				Expect(persisted.Spec.ReservedProfileName).To(Equal(ptr.To("profile-a")))
+			}
+		})
+
+		It("does not overwrite a concurrent profile selection or complete the upgrade on conflict", func() {
+			concurrent := vm.DeepCopy()
+			concurrent.Spec.ReservedProfileName = ptr.To("user-selection")
+			Expect(k8sClient.Update(ctx, concurrent)).To(Succeed())
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(MatchError(ContainSubstring("persist reserved-profile backfill")))
+			Expect(vm.Annotations[pkgconst.UpgradedToFeatureVersionAnnotationKey]).To(Equal("9"))
+			Expect(k8sClient.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), vm)).To(Succeed())
+			Expect(vm.Spec.ReservedProfileName).To(Equal(ptr.To("user-selection")))
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(MatchError(upgradevm.ErrUpgradeObject))
+			Expect(vm.Spec.ReservedProfileName).To(Equal(ptr.To("user-selection")))
+		})
+
+		It("leaves a classless VM unset and completes the upgrade", func() {
+			vm.Spec.ClassName = ""
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(MatchError(upgradevm.ErrUpgradeObject))
+			Expect(vm.Spec.ReservedProfileName).To(BeNil())
+			Expect(vmopv1util.IsObjectUpgraded(ctx, vm)).To(Succeed())
+		})
+
+		DescribeTable("uses only the class's explicit default", func(policy *vmopv1.EnumPolicy, expected *string) {
+			class.Spec.ReservedProfileName = policy
+			Expect(k8sClient.Update(ctx, class)).To(Succeed())
+			Expect(upgradevm.ReconcileSchemaUpgrade(ctx, k8sClient, vm, moVM)).To(MatchError(upgradevm.ErrUpgradeObject))
+			persisted := &vmopv1.VirtualMachine{}
+			Expect(k8sClient.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), persisted)).To(Succeed())
+			Expect(persisted.Spec.ReservedProfileName).To(Equal(expected))
+			Expect(vmopv1util.IsObjectUpgraded(ctx, vm)).To(Succeed())
+		},
+			Entry("no policy", nil, nil),
+			Entry("allowed without a default", &vmopv1.EnumPolicy{Allowed: ptr.To([]string{"profile-a"})}, nil),
+			Entry("explicit empty default", &vmopv1.EnumPolicy{Default: ptr.To("")}, ptr.To("")),
+		)
 	})
 
 	When("it should panic", func() {
@@ -344,7 +457,7 @@ var _ = Describe("ReconcileSchemaUpgrade", func() {
 						})
 						It("should backfill NIC type from moVM", func() {
 							assertUpgraded()
-							assertFeatureVersion("9")
+							assertFeatureVersion("41")
 							Expect(vm.Spec.Network.Interfaces[0].Type).To(Equal(vmopv1.VirtualMachineNetworkInterfaceTypeVMXNet3))
 						})
 					})
@@ -357,7 +470,7 @@ var _ = Describe("ReconcileSchemaUpgrade", func() {
 						})
 						It("should backfill SRIOV from moVM", func() {
 							assertUpgraded()
-							assertFeatureVersion("9")
+							assertFeatureVersion("41")
 							Expect(vm.Spec.Network.Interfaces[0].Type).To(Equal(vmopv1.VirtualMachineNetworkInterfaceTypeSRIOV))
 						})
 					})
@@ -371,7 +484,7 @@ var _ = Describe("ReconcileSchemaUpgrade", func() {
 						})
 						It("should backfill NIC type from moVM and ignore extra", func() {
 							assertUpgraded()
-							assertFeatureVersion("9")
+							assertFeatureVersion("41")
 							Expect(vm.Spec.Network.Interfaces[0].Type).To(Equal(vmopv1.VirtualMachineNetworkInterfaceTypeVMXNet2))
 						})
 					})
@@ -399,7 +512,7 @@ var _ = Describe("ReconcileSchemaUpgrade", func() {
 						})
 						It("should backfill types from moVM and default to vmxnet3", func() {
 							assertUpgraded()
-							assertFeatureVersion("9")
+							assertFeatureVersion("41")
 							Expect(vm.Spec.Network.Interfaces[0].Type).To(Equal(vmopv1.VirtualMachineNetworkInterfaceTypeVMXNet3))
 							Expect(vm.Spec.Network.Interfaces[1].Type).To(Equal(vmopv1.VirtualMachineNetworkInterfaceTypeE1000))
 							Expect(vm.Spec.Network.Interfaces[2].Type).To(Equal(vmopv1.VirtualMachineNetworkInterfaceTypeE1000e))
@@ -421,7 +534,7 @@ var _ = Describe("ReconcileSchemaUpgrade", func() {
 						})
 						It("should backfill spec.advanced from moVM ExtraConfig", func() {
 							assertUpgraded()
-							assertFeatureVersion("9")
+							assertFeatureVersion("41")
 							Expect(vm.Spec.Advanced).ToNot(BeNil())
 							Expect(vm.Spec.Advanced.PreferHTEnabled).ToNot(BeNil())
 							Expect(*vm.Spec.Advanced.PreferHTEnabled).To(BeTrue())
@@ -437,7 +550,7 @@ var _ = Describe("ReconcileSchemaUpgrade", func() {
 						})
 						It("should backfill vmxnet3.UPTv2Enabled from moVM device", func() {
 							assertUpgraded()
-							assertFeatureVersion("9")
+							assertFeatureVersion("41")
 							Expect(vm.Spec.Network.Interfaces[0].VMXNet3).ToNot(BeNil())
 							Expect(vm.Spec.Network.Interfaces[0].VMXNet3.UPTv2Enabled).ToNot(BeNil())
 							Expect(*vm.Spec.Network.Interfaces[0].VMXNet3.UPTv2Enabled).To(BeTrue())
@@ -452,7 +565,7 @@ var _ = Describe("ReconcileSchemaUpgrade", func() {
 						})
 						It("should backfill VNUMANodeID from moVM device", func() {
 							assertUpgraded()
-							assertFeatureVersion("9")
+							assertFeatureVersion("41")
 							Expect(vm.Spec.Network.Interfaces[0].VNUMANodeID).ToNot(BeNil())
 							Expect(*vm.Spec.Network.Interfaces[0].VNUMANodeID).To(Equal(int32(2)))
 						})

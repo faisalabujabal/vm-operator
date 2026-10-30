@@ -147,7 +147,7 @@ var _ = DescribeTable("IsVirtualMachineSchemaUpgraded",
 		"1.2.3-test",
 		ptr.To("1.2.3-test"),
 		ptr.To(vmopv1.GroupVersion.Version),
-		ptr.To("9"),
+		ptr.To("41"),
 		false,
 		false,
 		false,
@@ -161,7 +161,7 @@ var _ = DescribeTable("IsVirtualMachineSchemaUpgraded",
 		"1.2.3-test",
 		ptr.To("1.2.3-test"),
 		ptr.To(vmopv1.GroupVersion.Version),
-		ptr.To("31"),
+		ptr.To("63"),
 		false,
 		true,
 		true,
@@ -175,7 +175,7 @@ var _ = DescribeTable("IsVirtualMachineSchemaUpgraded",
 		"1.2.3-test",
 		ptr.To("1.2.3-test"),
 		ptr.To(vmopv1.GroupVersion.Version),
-		ptr.To("31"),
+		ptr.To("63"),
 		false,
 		true,
 		true,
@@ -391,7 +391,7 @@ var _ = DescribeTable("IsVirtualMachineSchemaUpgraded",
 		vmopv1util.NotUpgradedErr{
 			Type:   "featureVersion",
 			Object: "1",
-			Target: "9",
+			Target: "41",
 		},
 	),
 	Entry(
@@ -471,7 +471,7 @@ var _ = Describe("FeatureVersion", func() {
 			Entry("All is valid", vmopv1util.FeatureVersionAll, true),
 			Entry("VMServiceClasslessVM alone is valid", vmopv1util.FeatureVersionTelcoVMServiceAPI, true),
 			Entry("NICUnitNumbers alone is valid", vmopv1util.FeatureVersionNICUnitNumbers, true),
-			Entry("invalid bit 32 is invalid", vmopv1util.FeatureVersion(32), false),
+			Entry("invalid bit 64 is invalid", vmopv1util.FeatureVersion(64), false),
 			Entry("invalid bit 255 is invalid", vmopv1util.FeatureVersion(255), false),
 		)
 	})
@@ -490,7 +490,7 @@ var _ = Describe("FeatureVersion", func() {
 			Entry("VMSharedDisks + AllDisksArePVCs", vmopv1util.FeatureVersionVMSharedDisks|vmopv1util.FeatureVersionAllDisksArePVCs, "6"),
 			Entry("VMServiceClasslessVM", vmopv1util.FeatureVersionTelcoVMServiceAPI, "8"),
 			Entry("NICUnitNumbers", vmopv1util.FeatureVersionNICUnitNumbers, "16"),
-			Entry("All", vmopv1util.FeatureVersionAll, "31"),
+			Entry("All", vmopv1util.FeatureVersionAll, "63"),
 		)
 	})
 
@@ -537,6 +537,7 @@ var _ = Describe("FeatureVersion", func() {
 			fv.Set(vmopv1util.FeatureVersionAllDisksArePVCs)
 			fv.Set(vmopv1util.FeatureVersionTelcoVMServiceAPI)
 			fv.Set(vmopv1util.FeatureVersionNICUnitNumbers)
+			fv.Set(vmopv1util.FeatureVersionReservedProfile)
 			Ω(fv).Should(Equal(vmopv1util.FeatureVersionAll))
 		})
 
@@ -564,10 +565,10 @@ var _ = Describe("ParseFeatureVersion", func() {
 		Entry("VMSharedDisks + AllDisksArePVCs", "6", vmopv1util.FeatureVersionVMSharedDisks|vmopv1util.FeatureVersionAllDisksArePVCs),
 		Entry("VMServiceClasslessVM", "8", vmopv1util.FeatureVersionTelcoVMServiceAPI),
 		Entry("NICUnitNumbers", "16", vmopv1util.FeatureVersionNICUnitNumbers),
-		Entry("All", "31", vmopv1util.FeatureVersionAll),
+		Entry("All", "63", vmopv1util.FeatureVersionAll),
 		Entry("invalid negative", "-1", vmopv1util.FeatureVersionEmpty),
 		Entry("invalid text", "abc", vmopv1util.FeatureVersionEmpty),
-		Entry("invalid with invalid bits", "32", vmopv1util.FeatureVersionEmpty),
+		Entry("invalid with invalid bits", "64", vmopv1util.FeatureVersionEmpty),
 		Entry("invalid large number", "65536", vmopv1util.FeatureVersionEmpty),
 		Entry("invalid with valid and invalid bits", "255", vmopv1util.FeatureVersionEmpty),
 	)
@@ -590,7 +591,7 @@ var _ = Describe("ActivatedFeatureVersion", func() {
 		Entry("VMSharedDisks only", true, false, false, false, vmopv1util.FeatureVersionBase|vmopv1util.FeatureVersionVMSharedDisks|vmopv1util.FeatureVersionAllDisksArePVCs),
 		Entry("AllDisksArePVCs only", false, true, false, false, vmopv1util.FeatureVersionBase|vmopv1util.FeatureVersionAllDisksArePVCs),
 		Entry("both disk-related features", true, true, false, false, vmopv1util.FeatureVersionBase|vmopv1util.FeatureVersionVMSharedDisks|vmopv1util.FeatureVersionAllDisksArePVCs),
-		Entry("VMServiceClasslessVM only", false, false, true, false, vmopv1util.FeatureVersionBase|vmopv1util.FeatureVersionTelcoVMServiceAPI),
+		Entry("VMServiceClasslessVM only", false, false, true, false, vmopv1util.FeatureVersionBase|vmopv1util.FeatureVersionTelcoVMServiceAPI|vmopv1util.FeatureVersionReservedProfile),
 		Entry("VMNetworkUnitNumbers only", false, false, false, true, vmopv1util.FeatureVersionBase|vmopv1util.FeatureVersionNICUnitNumbers),
 		Entry("every activated feature bit", true, true, true, true, vmopv1util.FeatureVersionAll),
 	)

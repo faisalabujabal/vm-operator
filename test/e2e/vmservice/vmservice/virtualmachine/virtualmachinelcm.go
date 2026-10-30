@@ -40,6 +40,7 @@ import (
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/testbed"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/vcenter"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/wcp"
+	"github.com/vmware-tanzu/vm-operator/test/e2e/manifestbuilders"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/utils"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/common"
 	e2eConfig "github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/config"
@@ -189,7 +190,7 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 	})
 
 	It("Should realize the v1alpha6 VMClass size defaults for a v1alpha6 VirtualMachine", Label("core-functional", "experimental"), func() {
-		skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, clusterProxy, consts.TelcoVMServiceAPICapabilityName)
+		skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, clusterProxy, consts.VMServiceClasslessVMCapabilityName)
 
 		className := fmt.Sprintf("%s-class", vmName)
 		classCPU := resource.MustParse("2")
@@ -223,13 +224,12 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 			ImageName:        linuxVMIName,
 			VMClassName:      className,
 			StorageClassName: clusterResources.StorageClassName,
-			ResourcePolicy:   clusterResources.VMResourcePolicyName,
 			PowerState:       "PoweredOff",
 		}
 		vmObject, err := manifestbuilders.VirtualMachineA6(vmParameters)
 		Expect(err).NotTo(HaveOccurred())
 		vmYaml := manifestbuilders.ToYAML(vmObject)
-		Expect(clusterProxy.CreateWithArgs(ctx, vmYaml)).To(Succeed(), "failed to create v1alpha6 virtualmachine:\n %s", string(vmYaml))
+		Expect(svClusterClient.Create(ctx, vmObject)).To(Succeed(), "failed to create v1alpha6 virtualmachine:\n %s", string(vmYaml))
 		vmoperator.DeferCleanupVirtualMachine(config, svClusterClient, clusterProxy.GetKubeconfigPath(), vmParameters.Namespace, vmParameters.Name, false)
 
 		vmoperator.WaitForVirtualMachineToExist(ctx, config, svClusterClient, input.WCPNamespaceName, vmName)

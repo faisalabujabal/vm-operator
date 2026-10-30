@@ -6,6 +6,7 @@ package v1alpha6
 
 import (
 	"fmt"
+	"slices"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -48,6 +49,14 @@ func ClassResourcePairDefaults(in VirtualMachineClassResourceSpec) (cpu, memory 
 // that API's writer changed their projected value. Projected is the preserved
 // class converted down and back up without its conversion annotation.
 func RestoreClassPolicies(dst, preserved, projected *VirtualMachineClassSpec) {
+	// Older versions have no representation of governance or zone availability.
+	// Restore these independently of edits to the older API's resource fields.
+	dst.Zones = nil
+	if preserved.Zones != nil {
+		zones := slices.Clone(*preserved.Zones)
+		dst.Zones = &zones
+	}
+	dst.Governs = preserved.Governs.DeepCopy()
 	for _, group := range []struct {
 		dst, preserved, projected *VirtualMachineClassResourceSpec
 	}{

@@ -22,6 +22,16 @@ Class conversion annotation preservation and metadata isolation use shared hub h
 
 Push field/version/value combinations, nil/zero/empty handling, conversion round trips and older-writer edits into unit tests. Use envtest for storage/pruning/CEL/admission and conversion-webhook behavior, and vcsim/provider tests for configuration translation. E2E proves representative complete workflows: a new-shape class produces the expected VM spec and realized configuration; legacy classes and healthy workloads survive a real baseline-to-candidate upgrade and remain usable afterward. Old-version API writes to the candidate alone are not upgrade coverage. Each PR records what lower layers prove and the remaining E2E responsibilities. Test results must distinguish executed checks from unavailable testbed coverage.
 
+### Zone and governance schema slice (vmop-4315)
+
+This draft targets the resource foundation (A1), independently of the device, profile, compute, boot and advanced drafts. It adds `spec.zones` and `spec.governs.{zones,enforcement,existingVMs}` and preserves their absent/empty/list states through all older class APIs and immutable class-instance conversions. Legacy classes acquire neither a zone restriction nor governance. Reused conversion destinations clear both hub-only fields before restoring annotation data.
+
+Both zone lists are sets. The subset CEL rule compares the available set with its union with the governing set, avoiding nested scans and arbitrary list-size limits. Omitted availability is unrestricted; omitted governing zones inherit availability; explicitly empty governing zones always satisfy the subset check. Schema validation and storage apply independently of capabilities, as for the other v1alpha6 schema fields.
+
+This slice provides the schema, not governance behavior: governance resolution/status remain vmop-4320/vmop-4323; enforcement defaulting remains vmop-4324; the top-class `existingVMs` requirement and cross-object rules remain vmop-4325. Governance must be resolved live, so this slice does not add governance metadata to the VM configuration hash. The association-zone ownership decision T010 does not block representing zone lists or checking their local subset relationship.
+
+Conversion tests cover older-writer edits and reused destinations; envtest covers create/update validation and `CreateOrUpdate` storage for all three zone states; an experimental installed-cluster E2E scenario checks storage, older-version webhook conversion and rejection. It does not claim placement enforcement or a real upgrade run.
+
 ## Technical context
 
 | Field | Value |

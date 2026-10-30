@@ -6,6 +6,11 @@ package virtualmachine
 
 import (
 	"context"
+	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
+	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -53,4 +58,49 @@ func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchema
 		Expect(class.Spec.Governs.Zones).To(HaveValue(BeEmpty()))
 		Expect(class.Spec.Governs.ExistingVMs).To(Equal(vmopv1.VirtualMachineClassExistingVMsAllowOnViolation))
 	})
+	It("reports a selectable class outside a narrowed governing ceiling", Label("core-functional", "experimental"), func() {
+		input := inputGetter()
+		proxy := input.ClusterProxy.(*common.VMServiceClusterProxy)
+		skipper.SkipUnlessInfraIs(input.Config.InfraConfig.InfraName, consts.WCP)
+		skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, proxy, consts.VMServiceClasslessVMCapabilityName)
+		client := proxy.GetClient()
+		// Keep this logical governance fixture isolated from tenant workloads.
+		namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "vmclass-governance-"}}
+		Expect(client.Create(ctx, namespace)).To(Succeed())
+		DeferCleanup(func(cleanupCtx context.Context) { Expect(client.Delete(cleanupCtx, namespace)).To(Succeed()) })
+		ceiling := &vmopv1.VirtualMachineClass{
+			ObjectMeta: metav1.ObjectMeta{Name: "ceiling", Namespace: namespace.Name},
+			Spec: vmopv1.VirtualMachineClassSpec{
+				Zones:     &[]string{"governance-zone"},
+				Governs:   &vmopv1.VirtualMachineClassGovernance{ExistingVMs: "AllowOnViolation", Enforcement: "Deny"},
+				Resources: vmopv1.VirtualMachineClassResources{Size: vmopv1.VirtualMachineClassResourceSpec{CPU: &vmopv1.ResourceQuantityRange{Min: ptr.To(resource.MustParse("1")), Max: ptr.To(resource.MustParse("8")), Default: ptr.To(resource.MustParse("2"))}}},
+			},
+		}
+		class := ceiling.DeepCopy()
+		class.Name = "selectable"
+		class.Spec.Governs = nil
+		class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("4"))
+		Expect(client.Create(ctx, ceiling)).To(Succeed())
+		Expect(client.Create(ctx, class)).To(Succeed())
+		key := ctrlclient.ObjectKeyFromObject(class)
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, key, class)).To(Succeed())
+			g.Expect(class.Status.Zones).To(HaveLen(1))
+			condition := apimeta.FindStatusCondition(class.Status.Zones[0].Conditions, vmopv1.VirtualMachineClassConditionWithinGovernance)
+			g.Expect(condition).NotTo(BeNil())
+			g.Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+		}, 2*time.Minute, time.Second).Should(Succeed())
+		Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(ceiling), ceiling)).To(Succeed())
+		ceiling.Spec.Resources.Size.CPU.Max = ptr.To(resource.MustParse("2"))
+		Expect(client.Update(ctx, ceiling)).To(Succeed())
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, key, class)).To(Succeed())
+			condition := apimeta.FindStatusCondition(class.Status.Zones[0].Conditions, vmopv1.VirtualMachineClassConditionWithinGovernance)
+			g.Expect(condition).NotTo(BeNil())
+			g.Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			g.Expect(condition.Reason).To(Equal(vmopv1.VirtualMachineClassGovernanceViolationReason))
+			g.Expect(class.Spec.Resources.Size.CPU.Default.String()).To(Equal("4"))
+		}, 2*time.Minute, time.Second).Should(Succeed())
+	})
+
 }

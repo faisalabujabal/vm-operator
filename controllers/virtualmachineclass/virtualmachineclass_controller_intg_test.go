@@ -7,7 +7,6 @@ package virtualmachineclass_test
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,7 +44,7 @@ func intgTestsReconcile() {
 		vmClass = &vmopv1.VirtualMachineClass{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "small",
-				Namespace: "default",
+				Namespace: ctx.Namespace,
 			},
 			Spec: vmopv1.VirtualMachineClassSpec{
 				Resources: vmopv1.VirtualMachineClassResources{

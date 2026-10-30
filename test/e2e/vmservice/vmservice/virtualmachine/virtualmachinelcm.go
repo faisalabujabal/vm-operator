@@ -236,23 +236,16 @@ func VMSpec(ctx context.Context, inputGetter func() VMSpecInput) {
 			Expect(svClusterClient.Delete(cleanupCtx, vmClass)).To(Succeed(), "failed to delete v1alpha6 VirtualMachineClass")
 		})
 
-		vmParameters := manifestbuilders.VirtualMachineYaml{
-			Namespace:        input.WCPNamespaceName,
-			Name:             vmName,
-			ImageName:        linuxVMIName,
-			VMClassName:      className,
-			StorageClassName: clusterResources.StorageClassName,
-			ResourcePolicy:   clusterResources.VMResourcePolicyName,
-			PowerState:       "PoweredOff",
+		vmObject := &vmopv1.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Namespace: input.WCPNamespaceName, Name: vmName},
+			Spec: vmopv1.VirtualMachineSpec{ImageName: linuxVMIName, ClassName: className,
+				StorageClass: clusterResources.StorageClassName, PowerState: vmopv1.VirtualMachinePowerStateOff},
 		}
-		vmObject, err := manifestbuilders.VirtualMachineA6(vmParameters)
-		Expect(err).NotTo(HaveOccurred())
 		// Class defaults must replace conflicting tenant values at admission.
 		conflicting := true
 		vmObject.Spec.CPUAdvanced = &vmopv1.VirtualMachineCPUAdvancedSpec{HotRemoveEnabled: &conflicting}
-		vmYaml := manifestbuilders.ToYAML(vmObject)
-		Expect(clusterProxy.CreateWithArgs(ctx, vmYaml)).To(Succeed(), "failed to create v1alpha6 virtualmachine:\n %s", string(vmYaml))
-		vmoperator.DeferCleanupVirtualMachine(config, svClusterClient, clusterProxy.GetKubeconfigPath(), vmParameters.Namespace, vmParameters.Name, false)
+		Expect(svClusterClient.Create(ctx, vmObject)).To(Succeed())
+		vmoperator.DeferCleanupVirtualMachine(config, svClusterClient, clusterProxy.GetKubeconfigPath(), vmObject.Namespace, vmObject.Name, false)
 
 		vmoperator.WaitForVirtualMachineToExist(ctx, config, svClusterClient, input.WCPNamespaceName, vmName)
 		vmMoID := vmoperator.WaitForVirtualMachineMOID(ctx, config, svClusterClient, input.WCPNamespaceName, vmName)

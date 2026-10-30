@@ -28,7 +28,6 @@ import (
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/vcenter"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/infrastructure/vsphere/wcp"
-	"github.com/vmware-tanzu/vm-operator/test/e2e/manifestbuilders"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/common"
 	e2eConfig "github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/config"
 	"github.com/vmware-tanzu/vm-operator/test/e2e/vmservice/consts"
@@ -229,13 +228,13 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 			}
 			g.Expect(imageName).NotTo(BeEmpty(), "configured Photon image must be ready in the persistent namespace")
 		}, input.Config.GetIntervals("default", "wait-virtual-machine-image-creation")...).Should(Succeed())
-		vmYAML := manifestbuilders.GetVirtualMachineYamlA5(manifestbuilders.VirtualMachineYaml{
-			Namespace: checkpoint.Namespace, Name: checkpoint.VMName,
-			ImageName: imageName, VMClassName: checkpoint.ClassName,
-			StorageClassName: input.Config.InfraConfig.ManagementClusterConfig.Resources.StorageClassName,
-			PowerState:       "PoweredOn",
-		})
-		Expect(proxy.CreateWithArgs(ctx, vmYAML)).To(Succeed(), "failed to create baseline v1alpha5 VM")
+		baseline := &vmopv1a5.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Namespace: checkpoint.Namespace, Name: checkpoint.VMName},
+			Spec: vmopv1a5.VirtualMachineSpec{ImageName: imageName, ClassName: checkpoint.ClassName,
+				StorageClass: input.Config.InfraConfig.ManagementClusterConfig.Resources.StorageClassName,
+				PowerState:   vmopv1a5.VirtualMachinePowerStateOn},
+		}
+		Expect(client.Create(ctx, baseline)).To(Succeed(), "failed to create baseline v1alpha5 VM")
 
 		By("waiting for the baseline VM to become powered on and capture its vCenter identity")
 		var baselineVM *vmopv1a5.VirtualMachine
@@ -426,15 +425,13 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 
 		By("creating a new typed v1alpha6 VM using the upgraded legacy class")
 		postUpgradeVMName := checkpoint.VMName + "-post"
-		newVM, err := manifestbuilders.VirtualMachineA6(manifestbuilders.VirtualMachineYaml{
-			Namespace: checkpoint.Namespace, Name: postUpgradeVMName,
-			ImageName: vm.Spec.ImageName, VMClassName: checkpoint.ClassName,
-			StorageClassName: input.Config.InfraConfig.ManagementClusterConfig.Resources.StorageClassName,
-			PowerState:       "PoweredOn",
-		})
-		Expect(err).NotTo(HaveOccurred())
-		postUpgradeVMYAML := manifestbuilders.ToYAML(newVM)
-		Expect(proxy.CreateWithArgs(ctx, postUpgradeVMYAML)).To(Succeed(), "failed to create v1alpha6 VM after upgrade")
+		newVM := &vmopv1.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Namespace: checkpoint.Namespace, Name: postUpgradeVMName},
+			Spec: vmopv1.VirtualMachineSpec{ImageName: vm.Spec.ImageName, ClassName: checkpoint.ClassName,
+				StorageClass: input.Config.InfraConfig.ManagementClusterConfig.Resources.StorageClassName,
+				PowerState:   vmopv1.VirtualMachinePowerStateOn},
+		}
+		Expect(client.Create(ctx, newVM)).To(Succeed(), "failed to create v1alpha6 VM after upgrade")
 		postUpgradeVM := &vmopv1.VirtualMachine{}
 		Eventually(func(g Gomega) {
 			g.Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: postUpgradeVMName}, postUpgradeVM)).To(Succeed())

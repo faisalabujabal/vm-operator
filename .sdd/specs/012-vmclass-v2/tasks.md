@@ -134,7 +134,7 @@ Blocked on a vSphere and govmomi release with the vmx-23 fields. Not a gate for 
 - [x] T200a [US2] [vmop-4320] Class-status API prerequisite on zone/governance schema #17: class per-zone conditions and observed generation, older-version preservation, schema integration and experimental served-API E2E — `api/v1alpha6/virtualmachineclass_governance_types.go`, `pkg/crd/crd_test.go`, `test/e2e/vmservice/vmservice/virtualmachine/vmclass_governance.go`
 
 
-- [ ] T200 [US2/US3] [vmop-4320] Resolve the governing class for a zone, and compare a VM's effective configuration, or a class's ranges, with it, field by field, including vCPU against MHz using the cluster's minimum host frequency — new package under `pkg/`, exported for the webhooks, the reconciler and placement
+- [x] T200 [US2/US3] [vmop-4320] Resolve the governing class for a zone, and compare a VM's effective configuration, or a class's ranges, with it, field by field, including vCPU against MHz using the cluster's minimum host frequency — new package under `pkg/`, exported for the webhooks, the reconciler and placement
 
 ### Story — Class hardware compatibility (vmop-4321)
 

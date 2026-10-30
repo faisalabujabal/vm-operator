@@ -5910,6 +5910,7 @@ var _ = Describe("Hardware status", func() {
 						Level: vimtypes.LatencySensitivitySensitivityLevelHigh,
 					}
 					vmCtx.MoVM.Config.CpuHotAddEnabled = ptr.To(true)
+					vmCtx.MoVM.Config.CpuHotRemoveEnabled = ptr.To(true)
 					vmCtx.MoVM.Config.Flags = vimtypes.VirtualMachineFlagInfo{
 						VvtdEnabled: ptr.To(true),
 					}
@@ -5938,6 +5939,7 @@ var _ = Describe("Hardware status", func() {
 						Expect(cpu.SimultaneousThreads).To(BeNil())
 						Expect(cpu.LatencySensitivity).To(BeEmpty())
 						Expect(cpu.HotAddEnabled).To(BeNil())
+						Expect(cpu.HotRemoveEnabled).To(BeNil())
 						Expect(cpu.IOMMUEnabled).To(BeNil())
 						Expect(cpu.NestedHardwareVirtualizationEnabled).To(BeNil())
 						Expect(cpu.PerformanceCountersEnabled).To(BeNil())
@@ -5972,6 +5974,7 @@ var _ = Describe("Hardware status", func() {
 						Expect(cpu.SimultaneousThreads).To(Equal(ptr.To(int32(2))))
 						Expect(cpu.LatencySensitivity).To(Equal(string(vimtypes.LatencySensitivitySensitivityLevelHigh)))
 						Expect(cpu.HotAddEnabled).To(Equal(ptr.To(true)))
+						Expect(cpu.HotRemoveEnabled).To(Equal(ptr.To(true)))
 						Expect(cpu.IOMMUEnabled).To(Equal(ptr.To(true)))
 						Expect(cpu.NestedHardwareVirtualizationEnabled).To(Equal(ptr.To(true)))
 						Expect(cpu.PerformanceCountersEnabled).To(Equal(ptr.To(true)))

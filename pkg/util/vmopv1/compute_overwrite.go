@@ -70,6 +70,7 @@ func computeFields(hwVer vimtypes.HardwareVersion) []computeFieldDef {
 		coresPerSocketField(hwVer),
 		vnumaNodeCountField(),
 		cpuHotAddFlagField(),
+		cpuHotRemoveFlagField(),
 		iommuField(),
 		nestedHVField(),
 		perfCountersField(),
@@ -514,6 +515,23 @@ func cpuHotAddFlagField() computeFieldDef {
 		},
 		apply: func(vm vmopv1.VirtualMachine, _ vimtypes.VirtualMachineConfigInfo, cs *vimtypes.VirtualMachineConfigSpec) {
 			cs.CpuHotAddEnabled = desiredCPUHotAddEnabled(vm)
+		},
+	}
+}
+
+func cpuHotRemoveFlagField() computeFieldDef {
+	return computeFieldDef{
+		fieldName:    "cpuAdvanced.hotRemoveEnabled",
+		hotPluggable: neverHotPluggable,
+		differs: func(vm vmopv1.VirtualMachine, ci vimtypes.VirtualMachineConfigInfo, cs *vimtypes.VirtualMachineConfigSpec) bool {
+			if vm.Spec.CPUAdvanced == nil || vm.Spec.CPUAdvanced.HotRemoveEnabled == nil {
+				return false
+			}
+			desired := vm.Spec.CPUAdvanced != nil && ptr.DerefWithDefault(vm.Spec.CPUAdvanced.HotRemoveEnabled, false)
+			return desired != ptr.DerefWithDefault(ci.CpuHotRemoveEnabled, false) || (cs.CpuHotRemoveEnabled != nil && desired != *cs.CpuHotRemoveEnabled)
+		},
+		apply: func(vm vmopv1.VirtualMachine, _ vimtypes.VirtualMachineConfigInfo, cs *vimtypes.VirtualMachineConfigSpec) {
+			cs.CpuHotRemoveEnabled = ptr.To(vm.Spec.CPUAdvanced != nil && ptr.DerefWithDefault(vm.Spec.CPUAdvanced.HotRemoveEnabled, false))
 		},
 	}
 }

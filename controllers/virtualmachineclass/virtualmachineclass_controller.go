@@ -147,15 +147,21 @@ func vmClassHash(ctx *pkgctx.VirtualMachineClassContext, class *vmopv1.VirtualMa
 	}
 
 	data := struct {
-		ConfigSpec          vimtypes.VirtualMachineConfigSpec   `json:"configSpec"`
-		Hardware            vmopv1.VirtualMachineClassHardware  `json:"hardware"`
-		Resources           vmopv1.VirtualMachineClassResources `json:"resources"`
-		ReservedProfileName *vmopv1.EnumPolicy                  `json:"reservedProfileName,omitempty"`
+		ConfigSpec          vimtypes.VirtualMachineConfigSpec             `json:"configSpec"`
+		Hardware            vmopv1.VirtualMachineClassHardware            `json:"hardware"`
+		Resources           vmopv1.VirtualMachineClassResources           `json:"resources"`
+		Advanced            *vmopv1.VirtualMachineClassAdvancedSpec       `json:"advanced,omitempty"`
+		ReservedProfileName *vmopv1.EnumPolicy                            `json:"reservedProfileName,omitempty"`
+		CPUAdvanced         *vmopv1.VirtualMachineClassCPUAdvancedSpec    `json:"cpuAdvanced,omitempty"`
+		MemoryAdvanced      *vmopv1.VirtualMachineClassMemoryAdvancedSpec `json:"memoryAdvanced,omitempty"`
 	}{
 		configSpec,
 		class.Spec.Hardware,
 		class.Spec.Resources,
+		class.Spec.Advanced,
 		class.Spec.ReservedProfileName,
+		class.Spec.CPUAdvanced,
+		class.Spec.MemoryAdvanced,
 	}
 
 	b, err := json.Marshal(data)

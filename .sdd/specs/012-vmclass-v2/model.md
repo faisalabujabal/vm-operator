@@ -53,6 +53,10 @@ Device items: independent count bounds and required entries are deferred. A devi
 | `parentClassRefs` | list of `{name}` | Milestone 2. Rejected in Milestone 1. One entry; same namespace. |
 | `resources.size.{cpu,memory}` | Number | CPU in vCPUs. |
 | `resources.{requests,limits}.{cpu,memory}` | Number | CPU in vCPUs. The incremental migration retains the existing Supervisor-wide minimum host frequency for conversion to VM MHz. Cluster-specific conversion remains an open question and must not change the vCPU definition implicitly. |
+| `cpuAdvanced.topology.{coresPerSocket,vnumaNodeCount}` | `IntRange` | Preserve the existing VM topology path. vNUMA node count projects to `VirtualNuma.CoresPerNumaNode` using the effective CPU size; zero selects automatic sizing. |
+| `cpuAdvanced.{hotAddEnabled,hotRemoveEnabled,iommuEnabled,nestedHardwareVirtualizationEnabled,performanceCountersEnabled}` | `BoolPolicy` | Includes the missing VM hot-remove boolean counterpart. CPU count decreases still require power-off. |
+| `cpuAdvanced.latencySensitivity` | `EnumPolicy` | Existing VM values `Normal`, `High`, `HighWithHyperthreading`; unsupported legacy levels stay in residual `configSpec`. |
+| `memoryAdvanced.{hotAddEnabled,reservationLockedToMax}` | `BoolPolicy` | Same VM paths. |
 | `cpuAdvanced.*`, `memoryAdvanced.*`, `bootOptions.*`, `advanced.*` | per field | Same paths as `VirtualMachine.spec`. |
 | `advanced.extraConfig` | `ListPolicy` | At the VM's path. |
 | `hardware.devices.{vgpuDevices,dynamicDirectPathIODevices}` | `ListPolicy` of device items | See "Value shapes". |
@@ -150,8 +154,8 @@ spec:
       memory: {min: 1Gi, max: 64Gi, default: 4Gi}
   advanced:
     extraConfig:
-      allowed: [{type: Glob, value: "guestinfo.*"}]
-      denied: [{type: Glob, value: "guestinfo.secret.*"}]
+      allowed: [{key: {glob: "guestinfo.*"}}]
+      denied: [{key: {glob: "guestinfo.secret.*"}}]
 ```
 
 A reserved GPU class:
@@ -169,3 +173,15 @@ spec:
   memoryAdvanced:
     reservationLockedToMax: {allowOverride: false, default: true}
 ```
+
+### Advanced field batch (vmop-4315)
+
+`advanced` contains `BoolPolicy` fields `changeBlockTracking`, `preferHtEnabled`, `hugePages1GEnabled`, `timeTrackerLowLatencyEnabled`, `cpuAffinityExclusiveNoStatsEnabled` and `vmxSwapEnabled`; `pnumaNodeAffinity` is an `Int32SetPolicy`; `extraConfig` is a concrete key/value list policy. `extraConfig.default` uses the VM's string key/value items, keyed by `key`; allowed/denied items contain an optional `key` string matcher with exactly one of `fixed`, `glob`, or `regex`. An omitted key matches any key. Governance enforcement remains separate.
+
+`hugePages1GEnabled` is the existing VM's boolean enable flag for 1 GB memory backing (`sched.mem.lpage.enable1GPage`). It does not select page sizes. The environment-browser schemas expose no page-size choice, so the ambiguous full-schema `hugePages` shorthand is represented by the existing VM field and `BoolPolicy`.
+
+Conversion lifts `changeTrackingEnabled` and supported VMX string values from `configSpec`, leaving unknown JSON and non-string ExtraConfig values in the residual document. A converted legacy boolean is fixed; a NUMA set becomes its default and one approved set. Round-trip annotations preserve policy metadata and each older API edit takes precedence for the corresponding field.
+
+CPU/memory deferrals: `cpuAdvanced.numaFixedAutoAffinityEnabled` and `cpuAdvanced.reservationLockedToMax` require a verified supported wire mapping before class/VM fields, reconciliation and tests can ship. The pinned govmomi model exposes neither advertised property. The proposed `cpuAdvanced.vnuma` container is omitted: pinned `VirtualMachineVirtualNuma` has only `coresPerNumaNode` and `exposeVnumaOnCpuHotadd`; node count maps the former, and the latter is deferred separately. It has no remaining configurable members.
+
+`cpuAdvanced.exposeVnumaOnCpuHotadd` is deferred from both typed class and VM APIs. The vSphere request only permits ESXi to consider exposure, while `NumaInfo.VnumaOnCpuHotaddExposed` reports effective observed topology; these are not proven interchangeable for reconciliation. Keep the raw `configSpec.virtualNuma.exposeVnumaOnCpuHotadd` path unchanged until a supported configured-state source and convergence semantics are verified (T103p).

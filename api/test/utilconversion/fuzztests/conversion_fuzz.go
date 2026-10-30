@@ -15,6 +15,7 @@ package fuzztests
 
 import (
 	"encoding/json"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"math/rand"
 	"time"
 
@@ -161,6 +162,20 @@ func ClassPolicyFuzzerFuncs(_ runtimeserializer.CodecFactory) []interface{} {
 	return []interface{}{
 		func(in *vmopv1.VirtualMachineClass, c randfill.Continue) {
 			c.FillNoCustom(in)
+			// Keep projection-dependent fields within their representable domain.
+			if cpu := in.Spec.CPUAdvanced; cpu != nil {
+				if cpu.LatencySensitivity != nil {
+					levels := []string{"Normal", "High", "HighWithHyperthreading"}
+					value := levels[c.Intn(len(levels))]
+					cpu.LatencySensitivity = &vmopv1.EnumPolicy{Default: &value}
+				}
+				if cpu.Topology != nil && cpu.Topology.VNUMANodeCount != nil {
+					counts := []int32{0, 1, 2, 4}
+					cpu.Topology.VNUMANodeCount = vmopv1.FixedClassInt(counts[c.Intn(len(counts))])
+					cpu.Topology.CoresPerSocket = vmopv1.FixedClassInt(2)
+					in.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("4"))
+				}
+			}
 			in.Spec.ConfigSpec = json.RawMessage(`{"_typeName":"VirtualMachineConfigSpec"}`)
 			data, err := json.Marshal(in)
 			if err != nil {

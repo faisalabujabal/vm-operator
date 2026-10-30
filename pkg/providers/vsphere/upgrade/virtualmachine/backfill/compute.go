@@ -272,6 +272,12 @@ func backfillCPUFlags(
 		}
 	}
 
+	if ci.CpuHotRemoveEnabled != nil && *ci.CpuHotRemoveEnabled && (vm.Spec.CPUAdvanced == nil || vm.Spec.CPUAdvanced.HotRemoveEnabled == nil) {
+		initCPUAdvanced(vm)
+		vm.Spec.CPUAdvanced.HotRemoveEnabled = ptr.To(true)
+		mutated = true
+	}
+
 	return mutated
 }
 

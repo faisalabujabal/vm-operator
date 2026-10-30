@@ -65,7 +65,7 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 	})
 	It("materializes independent class-owned values and replaces conflicting create values", func() {
 		vm.Spec.Resources = &vmopv1.VirtualMachineResourcesSpec{Size: &vmopv1.VirtualMachineResourceQuantity{CPU: resource.NewQuantity(8, resource.DecimalSI)}}
-		changed, err := vmclass.ApplyResourceDefaults(ctx, client, provider, vm, nil)
+		changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 		Expect(vm.Spec.Resources).To(Equal(defaults))
@@ -74,20 +74,62 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 	})
 	It("does not consult classes on ordinary updates or class removal", func() {
 		oldVM := vm.DeepCopy()
-		changed, err := vmclass.ApplyResourceDefaults(ctx, client, provider, vm, oldVM)
+		changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeFalse())
 		vm.Spec.ClassName = ""
-		changed, err = vmclass.ApplyResourceDefaults(ctx, client, provider, vm, oldVM)
+		changed, err = vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeFalse())
 		Expect(calls).To(BeZero())
+	})
+	It("materializes native raw presets while typed defaults win without changing the class", func() {
+		class.Spec.ConfigSpec = []byte(`{"_typeName":"VirtualMachineConfigSpec","cpuHotAddEnabled":true,"nestedHVEnabled":true}`)
+		class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
+		Expect(client.Update(ctx, class)).To(Succeed())
+		original := class.DeepCopy()
+		changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+		Expect(vm.Spec.CPUAdvanced.HotAddEnabled).To(HaveValue(BeFalse()))
+		Expect(vm.Spec.CPUAdvanced.NestedHardwareVirtualizationEnabled).To(HaveValue(BeTrue()))
+		Expect(calls).To(Equal(1))
+		Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class)).To(Succeed())
+		Expect(class.Spec).To(Equal(original.Spec))
+	})
+	It("materializes a guaranteed legacy memory lock without an incompatible explicit request", func() {
+		class.Spec.ConfigSpec = []byte(`{"memoryReservationLockedToMax":true}`)
+		Expect(client.Update(ctx, class)).To(Succeed())
+		defaults.Requests = &vmopv1.VirtualMachineResourceQuantity{Memory: resource.NewQuantity(2*1024*1024*1024, resource.BinarySI)}
+		_, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vm.Spec.MemoryAdvanced.ReservationLockedToMax).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Resources.Requests.Memory).To(BeNil())
+		Expect(defaults.Requests.Memory).NotTo(BeNil())
+		class.Spec.ConfigSpec = nil
+		class.Spec.MemoryAdvanced = &vmopv1.VirtualMachineClassMemoryAdvancedSpec{ReservationLockedToMax: vmopv1.FixedClassBool(true)}
+		Expect(client.Update(ctx, class)).To(Succeed())
+		vm.Spec.MemoryAdvanced, vm.Spec.Resources = nil, nil
+		_, err = vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vm.Spec.MemoryAdvanced.ReservationLockedToMax).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Resources.Requests.Memory).To(BeNil())
+
+	})
+	It("re-defaults a newly omitted hot-remove flag on a permitted class change", func() {
+		oldVM := vm.DeepCopy()
+		oldVM.Spec.ClassName = "previous"
+		value := true
+		vm.Spec.CPUAdvanced = &vmopv1.VirtualMachineCPUAdvancedSpec{HotRemoveEnabled: &value}
+		_, err := vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vm.Spec.CPUAdvanced.HotRemoveEnabled).To(HaveValue(BeFalse()))
 	})
 	It("clears allocations from the previous class on a class change", func() {
 		oldVM := vm.DeepCopy()
 		oldVM.Spec.ClassName = "guaranteed"
 		vm.Spec.Resources = &vmopv1.VirtualMachineResourcesSpec{Requests: &vmopv1.VirtualMachineResourceQuantity{CPU: resource.NewQuantity(3000, resource.DecimalSI)}}
-		changed, err := vmclass.ApplyResourceDefaults(ctx, client, provider, vm, oldVM)
+		changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(changed).To(BeTrue())
 		Expect(vm.Spec.Resources.Requests).To(BeNil())
@@ -102,7 +144,7 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 			Expect(spec.Description).To(Equal("snapshot"))
 			return defaults, nil
 		}
-		_, err := vmclass.ApplyResourceDefaults(ctx, client, provider, vm, nil)
+		_, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
 		Expect(err).NotTo(HaveOccurred())
 	})
 	It("does not use the previous class snapshot after className changes", func() {
@@ -110,19 +152,19 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 		vm.Spec.Class = &common.LocalObjectRef{Name: "previous-snapshot"}
 		oldVM := vm.DeepCopy()
 		oldVM.Spec.ClassName = "previous"
-		_, err := vmclass.ApplyResourceDefaults(ctx, client, provider, vm, oldVM)
+		_, err := vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(calls).To(Equal(1))
 	})
 	It("leaves existing objects untouched with capability or resize disabled", func() {
 		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = false })
-		_, err := vmclass.ApplyResourceDefaults(ctx, client, provider, vm, nil)
+		_, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
 		Expect(err).NotTo(HaveOccurred())
 		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = true })
 		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMResizeCPUMemory = false })
 		oldVM := vm.DeepCopy()
 		oldVM.Spec.ClassName = "other"
-		_, err = vmclass.ApplyResourceDefaults(ctx, client, provider, vm, oldVM)
+		_, err = vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(calls).To(BeZero())
 	})
@@ -130,12 +172,84 @@ var _ = Describe("Class resource admission", Label(testlabels.Mutation, testlabe
 		provider = func(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
 			return nil, errors.New("frequency unavailable")
 		}
-		_, err := vmclass.ApplyResourceDefaults(ctx, client, provider, vm, nil)
+		_, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
 		Expect(err).To(MatchError(ContainSubstring("frequency unavailable")))
 		Expect(vm.Spec.Resources).To(BeNil())
 		vm.Spec.ClassName = "missing"
-		_, err = vmclass.ApplyResourceDefaults(ctx, client, provider, vm, nil)
+		_, err = vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(vm.Spec.Resources).To(BeNil())
+	})
+})
+
+var _ = Describe("Class advanced admission", Label(testlabels.Mutation, testlabels.API), func() {
+	It("normalizes first-class VMX bag defaults with explicit typed policy precedence", func() {
+		ctx := pkgcfg.NewContextWithDefaultConfig()
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = true })
+		scheme := runtime.NewScheme()
+		Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+		yes := true
+		values := []common.KeyValuePair{{Key: "numa.vcpu.preferHT", Value: "FALSE"}, {Key: "sched.mem.lpage.enable1GPage", Value: "TRUE"}, {Key: "numa.nodeAffinity", Value: "0,2"}}
+		class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "advanced", Namespace: "tenant"}, Spec: vmopv1.VirtualMachineClassSpec{Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: &vmopv1.BoolPolicy{Default: &yes}, ExtraConfig: &vmopv1.ExtraConfigListPolicy{Default: &values}}}}
+		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(class).Build()
+		vm := &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Namespace: "tenant"}}
+		vm.Spec.ClassName = class.Name
+		provider := resourceProvider(func(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
+			return nil, nil
+		})
+		changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+		Expect(vm.Spec.Advanced.PreferHTEnabled).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Advanced.HugePages1GEnabled).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Advanced.PNUMANodeAffinity).To(Equal([]int32{0, 2}))
+		Expect(vm.Spec.Advanced.ExtraConfig).To(BeEmpty())
+		Expect(values[0].Value).To(Equal("FALSE"))
+	})
+
+	It("materializes defaults once and clears them when selecting an empty class", func() {
+		ctx := pkgcfg.NewContextWithDefaultConfig()
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = true; c.Features.VMResizeCPUMemory = true })
+		scheme := runtime.NewScheme()
+		Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+		yes, no := true, false
+		members := []int32{0, 2}
+		extra := []common.KeyValuePair{{Key: "example.class", Value: "default"}, {Key: "guestinfo.bootstrap", Value: "kept-in-class"}, {Key: "vmservice.test", Value: "kept-in-class"}, {Key: "ethernet0.ctxPerDev", Value: "kept-in-class"}}
+		class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "advanced", Namespace: "tenant"}, Spec: vmopv1.VirtualMachineClassSpec{Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
+			ChangeBlockTracking: &vmopv1.BoolPolicy{Default: &no}, PreferHTEnabled: &vmopv1.BoolPolicy{Default: &yes}, HugePages1GEnabled: &vmopv1.BoolPolicy{Default: &no}, TimeTrackerLowLatencyEnabled: &vmopv1.BoolPolicy{Default: &yes}, CPUAffinityExclusiveNoStatsEnabled: &vmopv1.BoolPolicy{Default: &no}, VMXSwapEnabled: &vmopv1.BoolPolicy{Default: &yes}, PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: &members}, ExtraConfig: &vmopv1.ExtraConfigListPolicy{Default: &extra},
+		}}}
+		empty := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "empty", Namespace: "tenant"}}
+		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(class, empty).Build()
+		vm := &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Name: "vm", Namespace: "tenant"}}
+		vm.Spec.ClassName = class.Name
+		vm.Spec.Advanced = &vmopv1.VirtualMachineAdvancedSpec{ChangeBlockTracking: &yes, BootDiskCapacity: resource.NewQuantity(42, resource.BinarySI)}
+		provider := resourceProvider(func(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
+			return nil, nil
+		})
+		changed, err := vmclass.ApplyDefaults(ctx, client, provider, vm, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+		Expect(vm.Spec.Advanced.ChangeBlockTracking).To(HaveValue(BeFalse()))
+		Expect(vm.Spec.Advanced.PreferHTEnabled).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Advanced.HugePages1GEnabled).To(HaveValue(BeFalse()))
+		Expect(vm.Spec.Advanced.TimeTrackerLowLatencyEnabled).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Advanced.CPUAffinityExclusiveNoStatsEnabled).To(HaveValue(BeFalse()))
+		Expect(vm.Spec.Advanced.VMXSwapEnabled).To(HaveValue(BeTrue()))
+		Expect(vm.Spec.Advanced.PNUMANodeAffinity).To(Equal(members))
+		Expect(vm.Spec.Advanced.ExtraConfig).To(Equal(extra[:1]))
+		vm.Spec.Advanced.PNUMANodeAffinity[0] = 3
+		vm.Spec.Advanced.ExtraConfig[0].Value = "vm-edit"
+		Expect(members).To(Equal([]int32{0, 2}))
+		Expect(extra[0].Value).To(Equal("default"))
+		old := vm.DeepCopy()
+		changed, err = vmclass.ApplyDefaults(ctx, client, provider, vm, old)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeFalse())
+		Expect(vm.Spec.Advanced.ExtraConfig[0].Value).To(Equal("vm-edit"))
+		vm.Spec.ClassName = empty.Name
+		changed, err = vmclass.ApplyDefaults(ctx, client, provider, vm, old)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+		Expect(vm.Spec.Advanced).To(Equal(&vmopv1.VirtualMachineAdvancedSpec{BootDiskCapacity: resource.NewQuantity(42, resource.BinarySI)}))
 	})
 })

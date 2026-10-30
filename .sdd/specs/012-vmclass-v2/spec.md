@@ -15,7 +15,7 @@
 
 `VirtualMachineClass` becomes the one kind for VM presets and VM governance:
 
-1. Every configuration field the class can bound has a typed value shape: number (`min`, `max`, `default`), enum, boolean or list. A fixed size is `min == max == default`, so one class can offer one size or a range. CPU requests and limits stay in vCPUs, as in today's class. Devices are one list; a separate set shape is deferred.
+1. Every configuration field the class can bound has a typed value shape: number (`min`, `max`, `default`), enum, boolean, list or set. A fixed size is `min == max == default`, so one class can offer one size or a range. CPU requests and limits stay in vCPUs, as in today's class. Device collections use list policies; physical NUMA affinity uses a set policy so approved node combinations remain one setting.
 2. A class can govern: with `spec.governs`, its constraints are the ceiling for every VM in the zones it governs, whether or not the VM names it. A zone with a governing class accepts classless (free-form) VMs; a zone without one requires a class, as today.
 3. Classes are zonal: `spec.zones` and `spec.governs.zones` say where a class is available and where it governs.
 4. `spec.externalID` holds the client's identity for the class, separate from the Kubernetes name.
@@ -72,7 +72,7 @@ Personas are those in [`constitution.md`](../../memory/constitution.md). Everyth
 
 1. **Given** a class `flex` with `governs: {existingVMs: AllowOnViolation}` and `spec.zones: [zone-a]`, **when** a classless VM in `zone-a` requests more CPU than `flex`'s `max`, **then** it is rejected, naming the field.
 2. **Given** the same class, **when** a VM that names another class in `zone-a` gets values outside `flex`'s ranges, **then** it is rejected.
-3. **Given** a governing class with `advanced.extraConfig.denied: [{type: Glob, value: "guestinfo.*"}]`, **when** a VM sets `guestinfo.foo`, **then** it is rejected.
+3. **Given** a governing class with `advanced.extraConfig.denied: [{key: {glob: "guestinfo.*"}}]`, **when** a VM sets `guestinfo.foo`, **then** it is rejected.
 4. **Given** a class already governs `zone-a`, **when** a second class is written so that it also governs `zone-a`, **then** the write is rejected.
 5. **Given** a governing class in `zone-a`, **when** a selectable class available in `zone-a` is written with a range outside the governing class's range, **then** the write is rejected.
 6. **Given** a governing class is narrowed after a selectable class was admitted, **when** the class controller reconciles, **then** the selectable class reports `WithinGovernance=False` for that zone and is not otherwise changed.
@@ -257,3 +257,7 @@ vm-operator runs on a Supervisor whose provider supplies the pieces below. vm-op
 - [ ] Hardware compatibility is asynchronous and never rejects a class (US7).
 - [ ] Visibility limits are specified (US7.4, US7.5).
 - [ ] Every open question is mirrored as a blocked task in `tasks.md`.
+
+### Approved CPU/memory incremental deferral
+
+Typed `cpuAdvanced.exposeVnumaOnCpuHotadd` is deferred until after the current PR set (T103p). A request to consider vNUMA exposure during CPU hot-add is not proven equivalent to the effective observed `NumaInfo.VnumaOnCpuHotaddExposed` state. Verify a supported source of configured intent, prerequisites and stable reconciliation before adding class/VM fields and their lifecycle coverage. Existing raw `configSpec.virtualNuma.exposeVnumaOnCpuHotadd` support remains unchanged.

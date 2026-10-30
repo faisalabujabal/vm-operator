@@ -107,6 +107,46 @@ func intgTestsValidateCreate() {
 		Entry("should not work for invalid", false, invalidMemField.Error(), nil),
 	)
 
+	It("rejects updating a NUMA policy default outside approved sets", func() {
+		class := ctx.vmClass.DeepCopy()
+		class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{0}), Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{0}}})}}
+		Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+		class.Spec.Advanced.PNUMANodeAffinity.Default = ptr.To([]int32{1})
+		Expect(ctx.Client.Update(ctx, class)).NotTo(Succeed())
+	})
+	DescribeTable("advanced policy schema", validateSchema,
+		Entry("rejects negative default NUMA node IDs", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{-1})}}
+		}, true),
+		Entry("rejects negative allowed NUMA node IDs", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{-1}}})}}
+		}, true),
+
+		Entry("accepts a default from an approved NUMA set in a different order", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{2, 0}), Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{0, 2}}})}}
+		}, false),
+		Entry("rejects a NUMA default outside approved sets", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{1}), Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{0, 2}}})}}
+		}, true),
+		Entry("rejects required empty NUMA defaults", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{}), Required: ptr.To(true)}}
+		}, true),
+		Entry("accepts literal, glob, regex and wildcard matchers", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Allowed: ptr.To([]vmopv1.ExtraConfigMatcher{
+				{Key: &vmopv1.StringMatcher{Fixed: ptr.To("guestinfo.example")}},
+				{Key: &vmopv1.StringMatcher{Glob: ptr.To("guestinfo.*")}},
+				{Key: &vmopv1.StringMatcher{Regex: ptr.To("^guestinfo[.].*$")}},
+				{},
+			})}}
+		}, false),
+		Entry("rejects an empty string matcher", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Allowed: ptr.To([]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{}}})}}
+		}, true),
+		Entry("rejects ambiguous string matcher modes", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Denied: ptr.To([]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Fixed: ptr.To("key"), Glob: ptr.To("*")}}})}}
+		}, true),
+	)
+
 	DescribeTable("class policy schema", validateSchema,
 		Entry("accepts numeric and string quantities", func(class *vmopv1.VirtualMachineClass) {
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{
@@ -134,6 +174,33 @@ func intgTestsValidateCreate() {
 		}, true),
 		Entry("rejects CPU size defaults above int32", func(class *vmopv1.VirtualMachineClass) {
 			class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Default: ptr.To(resource.MustParse("2147483648"))}
+		}, true),
+		Entry("accepts explicit false compute defaults", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotRemoveEnabled: vmopv1.FixedClassBool(false)}
+		}, false),
+		Entry("rejects fixed boolean without a default", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: &vmopv1.BoolPolicy{AllowOverride: ptr.To(false)}}
+		}, true),
+		Entry("rejects negative topology defaults", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: vmopv1.FixedClassInt(-1)}}
+		}, true),
+		Entry("rejects positive NUMA node default without cores per socket", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{VNUMANodeCount: vmopv1.FixedClassInt(2)}}
+		}, true),
+		Entry("rejects unsupported latency defaults", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{LatencySensitivity: &vmopv1.EnumPolicy{Default: ptr.To("Low")}}
+		}, true),
+		Entry("rejects NUMA defaults without divisible guest CPU size", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("3"))
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: vmopv1.FixedClassInt(1), VNUMANodeCount: vmopv1.FixedClassInt(2)}}
+		}, true),
+		Entry("rejects unsupported allowed latency levels", func(class *vmopv1.VirtualMachineClass) {
+			values := []string{"Normal", "Low"}
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{LatencySensitivity: &vmopv1.EnumPolicy{Default: ptr.To("Normal"), Allowed: &values}}
+		}, true),
+		Entry("rejects CPU and NUMA topology with incompatible socket divisibility", func(class *vmopv1.VirtualMachineClass) {
+			class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("6"))
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: vmopv1.FixedClassInt(2), VNUMANodeCount: vmopv1.FixedClassInt(2)}}
 		}, true),
 		Entry("accepts enum default in allowed values", func(class *vmopv1.VirtualMachineClass) {
 			allowed := []string{"gold", "silver"}

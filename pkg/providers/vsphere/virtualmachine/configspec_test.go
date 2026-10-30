@@ -20,6 +20,7 @@ import (
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	vmopv1common "github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
 	"github.com/vmware-tanzu/vm-operator/pkg/providers/vsphere/constants"
@@ -2601,6 +2602,35 @@ var _ = Describe("ConfigSpecFromVMClassDevices", func() {
 })
 
 var _ = Describe("ClassConfigSpecFromClassSpec", func() {
+	It("preserves projected advanced defaults and typed devices with the capability disabled", func() {
+		ctx := pkgcfg.NewContextWithDefaultConfig()
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = true })
+		class := &vmopv1.VirtualMachineClassSpec{Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: []vmopv1.VGPUDevice{{ProfileName: "preserved-profile"}}}}, Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
+			ChangeBlockTracking: &vmopv1.BoolPolicy{Default: ptr.To(false)},
+			PreferHTEnabled:     &vmopv1.BoolPolicy{Default: ptr.To(true)},
+			PNUMANodeAffinity:   &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{0, 2})},
+			ExtraConfig:         &vmopv1.ExtraConfigListPolicy{Default: ptr.To([]vmopv1common.KeyValuePair{{Key: "guestinfo.class", Value: "retained"}, {Key: "ethernet0.ctxPerDev", Value: "retained"}, {Key: "vmservice.test", Value: "retained"}})},
+		}}
+		config, err := virtualmachine.ClassConfigSpecFromClassSpec(ctx, class)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.ChangeTrackingEnabled).To(HaveValue(BeFalse()))
+		Expect(config.DeviceChange).To(HaveLen(1))
+		extra := map[string]interface{}{}
+		for _, entry := range config.ExtraConfig {
+			v := entry.GetOptionValue()
+			extra[v.Key] = v.Value
+		}
+		Expect(extra).To(HaveKeyWithValue("numa.vcpu.preferHT", "TRUE"))
+		Expect(extra).To(HaveKeyWithValue("numa.nodeAffinity", "0,2"))
+		Expect(extra).To(HaveKeyWithValue("guestinfo.class", "retained"))
+		Expect(extra).To(HaveKeyWithValue("ethernet0.ctxPerDev", "retained"))
+		Expect(extra).To(HaveKeyWithValue("vmservice.test", "retained"))
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.TelcoVMServiceAPI = false })
+		disabled, err := virtualmachine.ClassConfigSpecFromClassSpec(ctx, class)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(disabled).To(Equal(config))
+	})
+
 	It("preserves raw ConfigSpec device precedence over typed defaults", func() {
 		classConfig := vimtypes.VirtualMachineConfigSpec{
 			Annotation: "class annotation",
@@ -3068,3 +3098,20 @@ func assertVMTags(
 	}
 	Expect(configSpec.TagSpecs).To(ConsistOf(tagSpecs))
 }
+
+var _ = Describe("Typed class compute configuration", func() {
+	It("uses the shared projection and preserves raw unrelated values", func() {
+		spec := &vmopv1.VirtualMachineClassSpec{
+			ConfigSpec:     []byte(`{"_typeName":"VirtualMachineConfigSpec","annotation":"keep","cpuHotRemoveEnabled":true,"virtualNuma":{"exposeVnumaOnCpuHotadd":true},"flags":{"vvtdEnabled":true}}`),
+			CPUAdvanced:    &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotRemoveEnabled: vmopv1.FixedClassBool(false), IOMMUEnabled: vmopv1.FixedClassBool(false)},
+			MemoryAdvanced: &vmopv1.VirtualMachineClassMemoryAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(true)},
+		}
+		actual, err := virtualmachine.ClassConfigSpecFromClassSpec(context.Background(), spec)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(actual.Annotation).To(Equal("keep"))
+		Expect(actual.CpuHotRemoveEnabled).To(Equal(ptr.To(false)))
+		Expect(actual.Flags.VvtdEnabled).To(Equal(ptr.To(false)))
+		Expect(actual.MemoryHotAddEnabled).To(Equal(ptr.To(true)))
+		Expect(actual.VirtualNuma.ExposeVnumaOnCpuHotadd).To(Equal(ptr.To(true)))
+	})
+})

@@ -2558,6 +2558,7 @@ func autoConvert_v1alpha6_VirtualMachineCPUAllocationStatus_To_v1alpha5_VirtualM
 	// WARNING: in.SimultaneousThreads requires manual conversion: does not exist in peer-type
 	// WARNING: in.LatencySensitivity requires manual conversion: does not exist in peer-type
 	// WARNING: in.HotAddEnabled requires manual conversion: does not exist in peer-type
+	// WARNING: in.HotRemoveEnabled requires manual conversion: does not exist in peer-type
 	// WARNING: in.IOMMUEnabled requires manual conversion: does not exist in peer-type
 	// WARNING: in.NestedHardwareVirtualizationEnabled requires manual conversion: does not exist in peer-type
 	// WARNING: in.PerformanceCountersEnabled requires manual conversion: does not exist in peer-type
@@ -2819,6 +2820,8 @@ func autoConvert_v1alpha6_VirtualMachineClassSpec_To_v1alpha5_VirtualMachineClas
 		return err
 	}
 	// WARNING: in.Resources requires manual conversion: does not exist in peer-type
+	// WARNING: in.CPUAdvanced requires manual conversion: does not exist in peer-type
+	// WARNING: in.MemoryAdvanced requires manual conversion: does not exist in peer-type
 	out.Description = in.Description
 	out.ConfigSpec = *(*json.RawMessage)(unsafe.Pointer(&in.ConfigSpec))
 	// WARNING: in.ReservedProfileName requires manual conversion: does not exist in peer-type

@@ -180,11 +180,14 @@ func RestoreClassConversionData[S any](
 	up func(*S, *VirtualMachineClassSpec, apiconversion.Scope) error,
 	s apiconversion.Scope,
 ) error {
+	// Reset hub-only fields when the conversion destination is reused.
+	out.Status = VirtualMachineClassStatus{}
 	var preserved VirtualMachineClass
 	ok, err := restoreClassData(inMeta, &out.ObjectMeta, &preserved, "VMClass")
 	if err != nil || !ok {
 		return err
 	}
+	out.Status = *preserved.Status.DeepCopy()
 	return restoreClassSpec(&out.Spec, &preserved.Spec, down, up, s)
 }
 

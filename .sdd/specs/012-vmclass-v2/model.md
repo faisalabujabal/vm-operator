@@ -189,3 +189,5 @@ Conversion lifts `changeTrackingEnabled` and supported VMX string values from `c
 CPU/memory deferrals: `cpuAdvanced.numaFixedAutoAffinityEnabled` and `cpuAdvanced.reservationLockedToMax` require a verified supported wire mapping before class/VM fields, reconciliation and tests can ship. The pinned govmomi model exposes neither advertised property. The proposed `cpuAdvanced.vnuma` container is omitted: pinned `VirtualMachineVirtualNuma` has only `coresPerNumaNode` and `exposeVnumaOnCpuHotadd`; node count maps the former, and the latter is deferred separately. It has no remaining configurable members.
 
 `cpuAdvanced.exposeVnumaOnCpuHotadd` is deferred from both typed class and VM APIs. The vSphere request only permits ESXi to consider exposure, while `NumaInfo.VnumaOnCpuHotaddExposed` reports effective observed topology; these are not proven interchangeable for reconciliation. Keep the raw `configSpec.virtualNuma.exposeVnumaOnCpuHotadd` path unchanged until a supported configured-state source and convergence semantics are verified (T103p).
+
+Class status uses standard metav1 conditions and preserves per-zone status through older-version conversion annotations.

@@ -7,7 +7,6 @@ package v1alpha5
 import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	apiconversion "k8s.io/apimachinery/pkg/conversion"
-
 	ctrlconversion "sigs.k8s.io/controller-runtime/pkg/conversion"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
@@ -152,4 +151,10 @@ func Convert_v1alpha5_VirtualMachineResourceSpec_To_v1alpha6_VirtualMachineClass
 func Convert_v1alpha6_VirtualMachineClassResourceSpec_To_v1alpha5_VirtualMachineResourceSpec(in *vmopv1.VirtualMachineClassResourceSpec, out *VirtualMachineResourceSpec, _ apiconversion.Scope) error {
 	out.Cpu, out.Memory = vmopv1.ClassResourcePairDefaults(*in)
 	return nil
+}
+
+// Convert_v1alpha6_VirtualMachineClassStatus_To_v1alpha5_VirtualMachineClassStatus projects status into the legacy API. The class conversion annotation preserves
+// governance status that the legacy empty status cannot represent.
+func Convert_v1alpha6_VirtualMachineClassStatus_To_v1alpha5_VirtualMachineClassStatus(in *vmopv1.VirtualMachineClassStatus, out *VirtualMachineClassStatus, s apiconversion.Scope) error {
+	return autoConvert_v1alpha6_VirtualMachineClassStatus_To_v1alpha5_VirtualMachineClassStatus(in, out, s)
 }

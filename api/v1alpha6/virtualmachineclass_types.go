@@ -252,6 +252,19 @@ const (
 
 // VirtualMachineClassStatus defines the observed state of VirtualMachineClass.
 type VirtualMachineClassStatus struct {
+	// ObservedGeneration is the generation last evaluated by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// Conditions reports whether class reconciliation completed successfully.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// Zones reports conditions for each available zone.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Zones []VirtualMachineClassZoneStatus `json:"zones,omitempty"`
 }
 
 // +kubebuilder:object:root=true

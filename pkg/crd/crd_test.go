@@ -1876,3 +1876,32 @@ var _ = Describe("Flex VM and Zone API schema", Label(testlabels.API, testlabels
 		Expect(names).To(Equal([]string{"ceiling"}))
 	})
 })
+
+var _ = Describe("Class governance schema", Label(testlabels.API, testlabels.EnvTest), func() {
+	It("stores empty zone selections and rejects governance outside availability", func() {
+		ctx := pkgcfg.NewContextWithDefaultConfig()
+		Expect(pkgcrd.Install(ctx, envTestClient, nil)).To(Succeed())
+		class := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "vmoperator.vmware.com/v1alpha6", "kind": "VirtualMachineClass",
+			"metadata": map[string]any{"generateName": "governance-", "namespace": "default"},
+			"spec":     map[string]any{"zones": []any{}, "governs": map[string]any{"zones": []any{}, "existingVMs": "AllowOnViolation"}},
+		}}
+		Eventually(func() error { return envTestClient.Create(ctx, class) }).Should(Succeed())
+		DeferCleanup(func() { Expect(envTestClient.Delete(ctx, class)).To(Succeed()) })
+		Expect(envTestClient.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class)).To(Succeed())
+		zones, found, err := unstructured.NestedSlice(class.Object, "spec", "zones")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeTrue())
+		Expect(zones).To(BeEmpty())
+		Expect(unstructured.SetNestedSlice(class.Object, []any{"zone-a"}, "spec", "governs", "zones")).To(Succeed())
+		Expect(apierrors.IsInvalid(envTestClient.Update(ctx, class))).To(BeTrue())
+		Expect(unstructured.SetNestedSlice(class.Object, []any{"zone-a"}, "spec", "zones")).To(Succeed())
+		Expect(envTestClient.Update(ctx, class)).To(Succeed())
+		class.Object["status"] = map[string]any{"observedGeneration": int64(1), "zones": []any{map[string]any{"name": "zone-a", "conditions": []any{map[string]any{"type": "Governing", "status": "True", "reason": "GovernanceSatisfied", "message": "", "lastTransitionTime": "2026-10-30T00:00:00Z"}}}}}
+		Expect(envTestClient.Status().Update(ctx, class)).To(Succeed())
+		Expect(envTestClient.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class)).To(Succeed())
+		_, found, err = unstructured.NestedSlice(class.Object, "status", "zones")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found).To(BeTrue())
+	})
+})

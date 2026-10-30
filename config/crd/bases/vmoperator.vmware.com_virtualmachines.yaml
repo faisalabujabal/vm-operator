@@ -15637,6 +15637,78 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  devices:
+                    description: Devices describes the desired passthrough devices
+                      attached to the VM.
+                    properties:
+                      dynamicDirectPathIODevices:
+                        description: DynamicDirectPathIODevices describes the desired
+                          PCI devices and quantities.
+                        items:
+                          description: VirtualMachineDynamicDirectPathIODevice identifies
+                            a PCI device and its quantity.
+                          properties:
+                            count:
+                              description: Count is the number of devices with this
+                                vendor and device ID.
+                              format: int32
+                              minimum: 1
+                              type: integer
+                            customLabel:
+                              description: CustomLabel selects the device backing.
+                                It is not part of the list key.
+                              type: string
+                            deviceID:
+                              description: DeviceID is the PCI device ID, matching
+                                the environment-browser entry.
+                              format: int64
+                              maximum: 65535
+                              minimum: 0
+                              type: integer
+                            vendorID:
+                              description: VendorID is the PCI vendor ID, matching
+                                the environment-browser entry.
+                              format: int64
+                              maximum: 65535
+                              minimum: 0
+                              type: integer
+                          required:
+                          - count
+                          - deviceID
+                          - vendorID
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - vendorID
+                        - deviceID
+                        x-kubernetes-list-type: map
+                      vgpuDevices:
+                        description: VGPUDevices describes the desired vGPU profiles
+                          and quantities.
+                        items:
+                          description: VirtualMachineVGPUDevice identifies a vGPU
+                            profile and its quantity.
+                          properties:
+                            count:
+                              description: Count is the number of devices using this
+                                profile.
+                              format: int32
+                              minimum: 1
+                              type: integer
+                            profileName:
+                              description: ProfileName identifies the vGPU profile
+                                in the environment browser.
+                              minLength: 1
+                              type: string
+                          required:
+                          - count
+                          - profileName
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - profileName
+                        x-kubernetes-list-type: map
+                    type: object
                   ideControllers:
                     description: |-
                       IDEControllers describes the desired list of IDE controllers for the VM.
@@ -16726,6 +16798,13 @@ spec:
                   resourcePolicyName:
                     type: string
                 type: object
+              reservedProfileName:
+                description: |-
+                  ReservedProfileName identifies a VirtualMachineReservedProfile in this
+                  namespace. Omission inherits the class or governing class default; an
+                  explicit empty string selects no profile. A selected profile must match
+                  the VM's CPU, memory and passthrough device configuration.
+                type: string
               resources:
                 description: |-
                   Resources describes the desired compute resource allocation for this VM.
@@ -17338,6 +17417,15 @@ spec:
                 x-kubernetes-list-map-keys:
                 - key
                 x-kubernetes-list-type: map
+              governingClassNames:
+                description: |-
+                  GoverningClassNames lists the names of the VirtualMachineClasses in this
+                  namespace that govern the VM's zone. It is computed from the classes,
+                  independently of the class selected by spec.className.
+                items:
+                  type: string
+                type: array
+                x-kubernetes-list-type: set
               guest:
                 description: Guest describes the observed state of the VM's guest.
                 properties:
@@ -17427,6 +17515,10 @@ spec:
                           HotAddEnabled describes whether CPU hot-add is observed as enabled.
                           Maps to VirtualMachineConfigInfo.cpuHotAddEnabled.
                         type: boolean
+                      hotRemoveEnabled:
+                        description: HotRemoveEnabled reports whether CPU hot-remove
+                          is enabled.
+                        type: boolean
                       iommuEnabled:
                         description: |-
                           IOMMUEnabled describes whether Intel VT-d (IOMMU) is observed as enabled.
@@ -17493,6 +17585,54 @@ spec:
                             type: integer
                         type: object
                     type: object
+                  dynamicDirectPathIODevices:
+                    description: |-
+                      DynamicDirectPathIODevices describes the observed Dynamic DirectPath I/O
+                      devices, grouped by vendor and device ID with their quantities.
+                    items:
+                      description: VirtualMachineDynamicDirectPathIODevice identifies
+                        a PCI device and its quantity.
+                      properties:
+                        count:
+                          description: Count is the number of devices with this vendor
+                            and device ID.
+                          format: int32
+                          minimum: 1
+                          type: integer
+                        customLabel:
+                          description: CustomLabel selects the device backing. It
+                            is not part of the list key.
+                          type: string
+                        deviceID:
+                          description: DeviceID is the PCI device ID, matching the
+                            environment-browser entry.
+                          format: int64
+                          maximum: 65535
+                          minimum: 0
+                          type: integer
+                        vendorID:
+                          description: VendorID is the PCI vendor ID, matching the
+                            environment-browser entry.
+                          format: int64
+                          maximum: 65535
+                          minimum: 0
+                          type: integer
+                      required:
+                      - count
+                      - deviceID
+                      - vendorID
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - vendorID
+                    - deviceID
+                    x-kubernetes-list-type: map
+                  firmware:
+                    description: Firmware describes the observed VM firmware.
+                    enum:
+                    - bios
+                    - efi
+                    type: string
                   memory:
                     description: Memory describes the observed memory allocation of
                       the VM.
@@ -17533,6 +17673,22 @@ spec:
                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                         x-kubernetes-int-or-string: true
                     type: object
+                  sevEnabled:
+                    description: SEVEnabled reports whether AMD Secure Encrypted Virtualization
+                      is enabled.
+                    type: boolean
+                  sevSnpEnabled:
+                    description: SEVSNPEnabled reports whether AMD SEV Secure Nested
+                      Paging is enabled.
+                    type: boolean
+                  smcPresent:
+                    description: SMCPresent reports whether the virtual System Management
+                      Controller is present.
+                    type: boolean
+                  tdxEnabled:
+                    description: TDXEnabled reports whether Intel Trust Domain Extensions
+                      is enabled.
+                    type: boolean
                   vGPUs:
                     description: VGPUs describes the observed vGPUs used by this VM.
                     items:

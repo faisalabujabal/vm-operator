@@ -5,6 +5,7 @@
 package v1alpha5_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -18,6 +19,10 @@ import (
 	ctrlconversion "sigs.k8s.io/controller-runtime/pkg/conversion"
 
 	"github.com/vmware-tanzu/vm-operator/api/test/utilconversion"
+	vmopv1a1 "github.com/vmware-tanzu/vm-operator/api/v1alpha1"
+	vmopv1a2 "github.com/vmware-tanzu/vm-operator/api/v1alpha2"
+	vmopv1a3 "github.com/vmware-tanzu/vm-operator/api/v1alpha3"
+	vmopv1a4 "github.com/vmware-tanzu/vm-operator/api/v1alpha4"
 	vmopv1a5 "github.com/vmware-tanzu/vm-operator/api/v1alpha5"
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	vmopv1common "github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
@@ -732,4 +737,87 @@ func TestVirtualMachineConversion(t *testing.T) {
 		g.Expect(after.Spec.Affinity.VMAntiAffinity.RequiredDuringSchedulingRequiredDuringExecution[0].TopologyKey).
 			To(Equal("topology.kubernetes.io/mno"))
 	})
+}
+
+func TestVirtualMachineFlexAPIRoundTrip(t *testing.T) {
+	for _, profile := range []*string{nil, ptr.To(""), ptr.To("reserved-small")} {
+		for name, spoke := range map[string]ctrlconversion.Convertible{
+			"v1alpha1": &vmopv1a1.VirtualMachine{},
+			"v1alpha2": &vmopv1a2.VirtualMachine{},
+			"v1alpha3": &vmopv1a3.VirtualMachine{},
+			"v1alpha4": &vmopv1a4.VirtualMachine{},
+			"v1alpha5": &vmopv1a5.VirtualMachine{},
+		} {
+			t.Run(name, func(t *testing.T) {
+				g := NewWithT(t)
+				original := &vmopv1.VirtualMachine{
+					Spec: vmopv1.VirtualMachineSpec{
+						ReservedProfileName: profile,
+						Hardware: &vmopv1.VirtualMachineHardwareSpec{
+							Devices: &vmopv1.VirtualMachineDevicesSpec{
+								VGPUDevices:                []vmopv1.VirtualMachineVGPUDevice{{ProfileName: "gpu-small", Count: 2}},
+								DynamicDirectPathIODevices: []vmopv1.VirtualMachineDynamicDirectPathIODevice{{VendorID: 4318, DeviceID: 100, CustomLabel: "device", Count: 3}},
+							},
+						},
+					},
+					Status: vmopv1.VirtualMachineStatus{
+						GoverningClassNames: []string{"governing-class"},
+						ChangeBlockTracking: ptr.To(false),
+						Conditions:          []metav1.Condition{{Type: vmopv1.VirtualMachineConditionGovernanceCompliant, Status: metav1.ConditionFalse, Reason: vmopv1.VirtualMachineNoGoverningClassReason}},
+						Hardware: &vmopv1.VirtualMachineHardwareStatus{
+							Firmware:   vmopv1.VirtualMachineBootOptionsFirmwareTypeEFI,
+							SEVEnabled: ptr.To(false), SEVSNPEnabled: ptr.To(true), TDXEnabled: ptr.To(false), SMCPresent: ptr.To(true),
+							CPU: &vmopv1.VirtualMachineCPUAllocationStatus{
+								HotRemoveEnabled: ptr.To(false),
+							},
+							DynamicDirectPathIODevices: []vmopv1.VirtualMachineDynamicDirectPathIODevice{{VendorID: 4318, DeviceID: 100, Count: 3}},
+						},
+					},
+				}
+				g.Expect(spoke.ConvertFrom(original)).To(Succeed())
+				// Exercise the actual wire format, including the conversion annotation.
+				wire, err := json.Marshal(spoke)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(json.Unmarshal(wire, spoke)).To(Succeed())
+				restored := &vmopv1.VirtualMachine{}
+				g.Expect(spoke.ConvertTo(restored)).To(Succeed())
+				g.Expect(restored.Spec.ReservedProfileName).To(Equal(profile))
+				g.Expect(restored.Spec.Hardware.Devices).To(Equal(original.Spec.Hardware.Devices))
+				g.Expect(restored.Status).To(Equal(original.Status))
+			})
+		}
+	}
+}
+
+func TestVirtualMachineFlexAPIDeepCopy(t *testing.T) {
+	g := NewWithT(t)
+	original := &vmopv1.VirtualMachine{
+		Spec: vmopv1.VirtualMachineSpec{ReservedProfileName: ptr.To(""), Hardware: &vmopv1.VirtualMachineHardwareSpec{
+			Devices: &vmopv1.VirtualMachineDevicesSpec{VGPUDevices: []vmopv1.VirtualMachineVGPUDevice{{ProfileName: "gpu", Count: 1}}},
+		}},
+		Status: vmopv1.VirtualMachineStatus{GoverningClassNames: []string{"ceiling"}, Hardware: &vmopv1.VirtualMachineHardwareStatus{
+			SEVEnabled: ptr.To(false), CPU: &vmopv1.VirtualMachineCPUAllocationStatus{HotRemoveEnabled: ptr.To(false)},
+			DynamicDirectPathIODevices: []vmopv1.VirtualMachineDynamicDirectPathIODevice{{VendorID: 1, DeviceID: 2, Count: 1}},
+		}},
+	}
+	copied := original.DeepCopy()
+	*copied.Spec.ReservedProfileName = "changed"
+	copied.Spec.Hardware.Devices.VGPUDevices[0].Count = 2
+	copied.Status.GoverningClassNames[0] = "changed"
+	*copied.Status.Hardware.SEVEnabled = true
+	*copied.Status.Hardware.CPU.HotRemoveEnabled = true
+	copied.Status.Hardware.DynamicDirectPathIODevices[0].Count = 2
+	g.Expect(*original.Spec.ReservedProfileName).To(BeEmpty())
+	g.Expect(original.Spec.Hardware.Devices.VGPUDevices[0].Count).To(Equal(int32(1)))
+	g.Expect(original.Status.GoverningClassNames).To(Equal([]string{"ceiling"}))
+	g.Expect(*original.Status.Hardware.SEVEnabled).To(BeFalse())
+	g.Expect(*original.Status.Hardware.CPU.HotRemoveEnabled).To(BeFalse())
+	g.Expect(original.Status.Hardware.DynamicDirectPathIODevices[0].Count).To(Equal(int32(1)))
+	wire, err := json.Marshal(original.Spec)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(wire)).To(ContainSubstring(`"reservedProfileName":""`))
+	original.Spec.ReservedProfileName = nil
+	wire, err = json.Marshal(original.Spec)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(string(wire)).NotTo(ContainSubstring("reservedProfileName"))
 }

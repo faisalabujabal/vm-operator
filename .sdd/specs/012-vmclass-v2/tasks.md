@@ -65,10 +65,12 @@ Each open item changes the shape of an API or a check. A task that depends on on
 
 ### Story — VM and Zone API fields (vmop-4317)
 
-- [ ] T108 [P] [US3/US6/US10] [vmop-4317] VM API: `spec.reservedProfileName`, `status.governingClassNames`, the `GovernanceCompliant` condition, and the observed fields (firmware, change block tracking, SEV, SEV-SNP, TDX, CPU hot-remove, SMC, DirectPath I/O devices) — `api/v1alpha6/virtualmachine_types.go`
-- [ ] T108a [US8/US10] [vmop-4317] VM API: inline `hardware.devices.vgpuDevices` and `hardware.devices.dynamicDirectPathIODevices`, with the same item fields and key names as the class items (T009e) — `api/v1alpha6/virtualmachine_types.go`
-- [ ] T109 [P] [US2] [vmop-4317] `Zone.status.governingClasses` — `external/tanzu-topology/api/v1alpha1/zone.go`; `make generate-external-manifests`
+- [x] T108 [P] [US3/US6/US10] [vmop-4317] VM API: `spec.reservedProfileName`, `status.governingClassNames`, the `GovernanceCompliant` condition, and the observed fields (firmware, change block tracking, SEV, SEV-SNP, TDX, CPU hot-remove, SMC, DirectPath I/O devices) — `api/v1alpha6/virtualmachine_types.go`, `api/v1alpha6/virtualmachine_hardware_types.go`
+- [x] T108a [US8/US10] [vmop-4317] VM API: inline `hardware.devices.vgpuDevices` and `hardware.devices.dynamicDirectPathIODevices`, with the same item fields and key names as the class items (T009e) — `api/v1alpha6/virtualmachine_hardware_types.go`
+- [x] T109 [P] [US2] [vmop-4317] `Zone.status.governingClasses` — `external/tanzu-topology/api/v1alpha1/zone.go`; `make generate-external-manifests`
 - [ ] T110 [US10] [vmop-4317] Schema upgrade fills `spec.reservedProfileName` on existing VMs from their class's `reservedProfileName.default`; this unset-to-set write is exempt from the powered-on lock — `pkg/providers/vsphere/upgrade/virtualmachine/vm_schema_upgrade.go`
+
+T108–T109 include generated deep copies, conversions and VM/VMReplicaSet/Zone CRDs, conversion coverage across all older VM versions, API-server storage and device-validation tests, and an experimental Supervisor installed-schema E2E test. T110 remains pending: it depends on the vmop-4315 class profile schema and vmop-4313 capability gate; neither is part of the API-only stack on the specification branch.
 
 ### Story — Remove VirtualMachineConfigPolicy (vmop-4318)
 

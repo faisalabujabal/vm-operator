@@ -326,6 +326,11 @@ type VirtualMachineCdromSpec struct {
 
 type VirtualMachineHardwareSpec struct {
 	// +optional
+
+	// Devices describes the desired passthrough devices attached to the VM.
+	Devices *VirtualMachineDevicesSpec `json:"devices,omitempty"`
+
+	// +optional
 	// +listType=map
 	// +listMapKey=name
 
@@ -408,6 +413,11 @@ type VirtualMachineVNUMATopologyStatus struct {
 // and limit fields), this struct covers the full observed CPU configuration as surfaced
 // in the VM's status under status.hardware.cpu.
 type VirtualMachineCPUAllocationStatus struct {
+	// +optional
+
+	// HotRemoveEnabled reports whether CPU hot-remove is enabled.
+	HotRemoveEnabled *bool `json:"hotRemoveEnabled,omitempty"`
+
 	// +optional
 
 	// Total describes the observed number of processors.
@@ -548,6 +558,41 @@ type VirtualMachineHardwareVGPUStatus struct {
 
 type VirtualMachineHardwareStatus struct {
 	// +optional
+	// +kubebuilder:validation:Enum=bios;efi
+
+	// Firmware describes the observed VM firmware.
+	Firmware VirtualMachineBootOptionsFirmwareType `json:"firmware,omitempty"`
+
+	// +optional
+
+	// SEVEnabled reports whether AMD Secure Encrypted Virtualization is enabled.
+	SEVEnabled *bool `json:"sevEnabled,omitempty"`
+
+	// +optional
+
+	// SEVSNPEnabled reports whether AMD SEV Secure Nested Paging is enabled.
+	SEVSNPEnabled *bool `json:"sevSnpEnabled,omitempty"`
+
+	// +optional
+
+	// TDXEnabled reports whether Intel Trust Domain Extensions is enabled.
+	TDXEnabled *bool `json:"tdxEnabled,omitempty"`
+
+	// +optional
+
+	// SMCPresent reports whether the virtual System Management Controller is present.
+	SMCPresent *bool `json:"smcPresent,omitempty"`
+
+	// +optional
+	// +listType=map
+	// +listMapKey=vendorID
+	// +listMapKey=deviceID
+
+	// DynamicDirectPathIODevices describes the observed Dynamic DirectPath I/O
+	// devices, grouped by vendor and device ID with their quantities.
+	DynamicDirectPathIODevices []VirtualMachineDynamicDirectPathIODevice `json:"dynamicDirectPathIODevices,omitempty"`
+
+	// +optional
 	// +listType=map
 	// +listMapKey=busNumber
 	// +listMapKey=type
@@ -570,4 +615,65 @@ type VirtualMachineHardwareStatus struct {
 
 	// VGPUs describes the observed vGPUs used by this VM.
 	VGPUs []VirtualMachineHardwareVGPUStatus `json:"vGPUs,omitempty"`
+}
+
+// VirtualMachineDevicesSpec describes passthrough device identities and quantities.
+type VirtualMachineDevicesSpec struct {
+	// +optional
+	// +listType=map
+	// +listMapKey=profileName
+
+	// VGPUDevices describes the desired vGPU profiles and quantities.
+	VGPUDevices []VirtualMachineVGPUDevice `json:"vgpuDevices,omitempty"`
+
+	// +optional
+	// +listType=map
+	// +listMapKey=vendorID
+	// +listMapKey=deviceID
+
+	// DynamicDirectPathIODevices describes the desired PCI devices and quantities.
+	DynamicDirectPathIODevices []VirtualMachineDynamicDirectPathIODevice `json:"dynamicDirectPathIODevices,omitempty"`
+}
+
+// VirtualMachineVGPUDevice identifies a vGPU profile and its quantity.
+type VirtualMachineVGPUDevice struct {
+	// +required
+	// +kubebuilder:validation:MinLength=1
+
+	// ProfileName identifies the vGPU profile in the environment browser.
+	ProfileName string `json:"profileName"`
+
+	// +required
+	// +kubebuilder:validation:Minimum=1
+
+	// Count is the number of devices using this profile.
+	Count int32 `json:"count"`
+}
+
+// VirtualMachineDynamicDirectPathIODevice identifies a PCI device and its quantity.
+type VirtualMachineDynamicDirectPathIODevice struct {
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=65535
+
+	// VendorID is the PCI vendor ID, matching the environment-browser entry.
+	VendorID int64 `json:"vendorID"`
+
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=65535
+
+	// DeviceID is the PCI device ID, matching the environment-browser entry.
+	DeviceID int64 `json:"deviceID"`
+
+	// +optional
+
+	// CustomLabel selects the device backing. It is not part of the list key.
+	CustomLabel string `json:"customLabel,omitempty"`
+
+	// +required
+	// +kubebuilder:validation:Minimum=1
+
+	// Count is the number of devices with this vendor and device ID.
+	Count int32 `json:"count"`
 }

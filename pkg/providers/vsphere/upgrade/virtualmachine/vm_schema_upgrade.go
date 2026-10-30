@@ -176,6 +176,15 @@ func ReconcileSchemaUpgrade(
 		}
 	}
 
+	if features.VMServiceClasslessVM {
+		if f := vmopv1util.FeatureVersionReservedProfile; !vmFeatureVersion.Has(f) {
+			if err := reconcileReservedProfile(ctx, k8sClient, vm); err != nil {
+				return err
+			}
+			vmFeatureVersion.Set(f)
+		}
+	}
+
 	vm.SetAnnotation(
 		pkgconst.UpgradedToFeatureVersionAnnotationKey,
 		vmFeatureVersion.String())
@@ -193,6 +202,38 @@ func ReconcileSchemaUpgrade(
 	// previously enabled.
 	return ErrUpgradeObject
 
+}
+
+// reconcileReservedProfile fills only an omitted profile selection. Explicit
+// empty and non-empty selections are preserved, including on powered-on VMs.
+func reconcileReservedProfile(
+	ctx context.Context,
+	k8sClient ctrlclient.Client,
+	vm *vmopv1.VirtualMachine) error {
+
+	if vm.Spec.ReservedProfileName != nil || vm.Spec.ClassName == "" {
+		return nil
+	}
+
+	var class vmopv1.VirtualMachineClass
+	key := ctrlclient.ObjectKey{Namespace: vm.Namespace, Name: vm.Spec.ClassName}
+	if err := k8sClient.Get(ctx, key, &class); err != nil {
+		// Do not mark the upgrade complete until the class can be resolved.
+		return fmt.Errorf("resolve class %s for reserved-profile backfill: %w", key, err)
+	}
+	if policy := class.Spec.ReservedProfileName; policy != nil && policy.Default != nil {
+		// Persist this field separately with an optimistic lock so a user edit
+		// racing with backfill wins via a conflict and a fresh reconcile. Leave
+		// the in-memory spec unchanged so the controller's deferred patch does
+		// not write the selection a second time without that lock.
+		updated := vm.DeepCopy()
+		updated.Spec.ReservedProfileName = ptr.To(*policy.Default)
+		if err := k8sClient.Patch(ctx, updated, ctrlclient.MergeFromWithOptions(
+			vm.DeepCopy(), ctrlclient.MergeFromWithOptimisticLock{})); err != nil {
+			return fmt.Errorf("persist reserved-profile backfill: %w", err)
+		}
+	}
+	return nil
 }
 
 func reconcileBIOSUUID(

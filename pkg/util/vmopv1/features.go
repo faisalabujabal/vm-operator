@@ -133,6 +133,9 @@ const (
 	// FeatureVersionNICUnitNumbers refers to the VMNetworkUnitNumbers
 	// capability.
 	FeatureVersionNICUnitNumbers // 16
+
+	// FeatureVersionReservedProfile refers to VM reserved-profile backfill.
+	FeatureVersionReservedProfile // 32
 )
 
 const (
@@ -144,7 +147,8 @@ const (
 		FeatureVersionVMSharedDisks |
 		FeatureVersionAllDisksArePVCs |
 		FeatureVersionTelcoVMServiceAPI |
-		FeatureVersionNICUnitNumbers // 31
+		FeatureVersionNICUnitNumbers |
+		FeatureVersionReservedProfile // 63
 )
 
 // FeatureVersions returns all possible, valid FeatureVersion elements.
@@ -155,6 +159,7 @@ func FeatureVersions() []FeatureVersion {
 		FeatureVersionAllDisksArePVCs,
 		FeatureVersionTelcoVMServiceAPI,
 		FeatureVersionNICUnitNumbers,
+		FeatureVersionReservedProfile,
 	}
 }
 
@@ -242,6 +247,7 @@ func ActivatedFeatureVersion(ctx context.Context) FeatureVersion {
 	}
 	if f.VMServiceClasslessVM {
 		v.Set(FeatureVersionTelcoVMServiceAPI)
+		v.Set(FeatureVersionReservedProfile)
 	}
 	if f.VMNetworkUnitNumbers {
 		v.Set(FeatureVersionNICUnitNumbers)

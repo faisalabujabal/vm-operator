@@ -167,17 +167,31 @@ var _ = Describe("Manifest builders", func() {
 	// VirtualMachineYaml's Hardware is a v1alpha6 type that VirtualMachineA5
 	// copies into its v1alpha5 equivalent. Filling every field with a non-nil
 	// value catches a field that exists in both versions but was not copied.
-	It("VirtualMachineA5 copies every v1alpha6 Hardware field", func() {
+	It("VirtualMachineA5 copies every Hardware field shared with v1alpha6", func() {
 		filler := randfill.New().NilChance(0).NumElements(1, 3)
 
 		for range 50 {
 			p := minimalVM()
 			p.Hardware = &vmopv1.VirtualMachineHardwareSpec{}
 			filler.Fill(p.Hardware)
+			// Inline device policies exist only in the candidate v1alpha6 API.
+			p.Hardware.Devices = nil
 
 			vm := mb.VirtualMachineA5(p)
 
 			Expect(toJSON(vm.Spec.Hardware)).To(MatchJSON(toJSON(p.Hardware)))
 		}
 	})
+	It("VirtualMachineA6 preserves all hardware fields without sharing the input", func() {
+		p := minimalVM()
+		p.Hardware = &vmopv1.VirtualMachineHardwareSpec{}
+		randfill.New().NilChance(0).NumElements(1, 3).Fill(p.Hardware)
+		vm, err := mb.VirtualMachineA6(p)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(vm.APIVersion).To(Equal(vmopv1.GroupVersion.String()))
+		Expect(vm.Spec.Hardware).To(Equal(p.Hardware))
+		Expect(vm.Spec.Hardware).NotTo(BeIdenticalTo(p.Hardware))
+		Expect(vm.Spec.Hardware.Devices).NotTo(BeIdenticalTo(p.Hardware.Devices))
+	})
+
 })

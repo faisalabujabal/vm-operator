@@ -68,3 +68,14 @@ func must[T any](obj T, err error) T {
 func typeMeta(apiVersion, kind string) metav1.TypeMeta {
 	return metav1.TypeMeta{APIVersion: apiVersion, Kind: kind}
 }
+
+// VirtualMachineA6 returns the v1alpha6 equivalent of the shared VM fixture.
+func VirtualMachineA6(vmYaml VirtualMachineYaml) (*vmopv1.VirtualMachine, error) {
+	vm := &vmopv1.VirtualMachine{}
+	if err := VirtualMachineA5(vmYaml).ConvertTo(vm); err != nil {
+		return nil, err
+	}
+	vm.TypeMeta = typeMeta(vmopv1.GroupVersion.String(), "VirtualMachine")
+	vm.Spec.Hardware = vmYaml.Hardware.DeepCopy()
+	return vm, nil
+}

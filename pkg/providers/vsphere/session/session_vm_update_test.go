@@ -562,32 +562,33 @@ var _ = Describe("Update ConfigSpec", func() {
 		var pciDevices vmopv1.VirtualDevices
 		Context("For VM Class Spec vGPU device", func() {
 			BeforeEach(func() {
-				pciDevices = vmopv1.VirtualDevices{
-					VGPUDevices: vgpuDevices,
-				}
+				pciDevices = vmopv1.VirtualDevices{VGPUDevices: &vmopv1.VGPUDeviceListPolicy{Default: &vgpuDevices}}
 			})
 			It("should create vSphere device with VmiopBackingInfo", func() {
-				vSphereDevices := virtualmachine.CreatePCIDevicesFromVMClass(pciDevices)
+				vSphereDevices, err := virtualmachine.CreatePCIDevicesFromVMClass(pciDevices)
+				Expect(err).ToNot(HaveOccurred())
 				Expect(vSphereDevices).To(HaveLen(1))
 				virtualDevice := vSphereDevices[0].GetVirtualDevice()
 				backing := virtualDevice.Backing.(*vimtypes.VirtualPCIPassthroughVmiopBackingInfo)
-				Expect(backing.Vgpu).To(Equal(pciDevices.VGPUDevices[0].ProfileName))
+				Expect(backing.Vgpu).To(Equal((*pciDevices.VGPUDevices.Default)[0].ProfileName))
 			})
 		})
 		Context("For VM Class Spec Dynamic DirectPath I/O device", func() {
 			BeforeEach(func() {
-				pciDevices = vmopv1.VirtualDevices{
-					DynamicDirectPathIODevices: ddpioDevices,
+				for i := range ddpioDevices {
+					ddpioDevices[i].Count = 1
 				}
+				pciDevices = vmopv1.VirtualDevices{DynamicDirectPathIODevices: &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &ddpioDevices}}
 			})
 			It("should create vSphere device with DynamicBackingInfo", func() {
-				vSphereDevices := virtualmachine.CreatePCIDevicesFromVMClass(pciDevices)
+				vSphereDevices, err := virtualmachine.CreatePCIDevicesFromVMClass(pciDevices)
+				Expect(err).ToNot(HaveOccurred())
 				Expect(vSphereDevices).To(HaveLen(1))
 				virtualDevice := vSphereDevices[0].GetVirtualDevice()
 				backing := virtualDevice.Backing.(*vimtypes.VirtualPCIPassthroughDynamicBackingInfo)
-				Expect(backing.AllowedDevice[0].DeviceId).To(Equal(int32(pciDevices.DynamicDirectPathIODevices[0].DeviceID)))
-				Expect(backing.AllowedDevice[0].VendorId).To(Equal(int32(pciDevices.DynamicDirectPathIODevices[0].VendorID)))
-				Expect(backing.CustomLabel).To(Equal(pciDevices.DynamicDirectPathIODevices[0].CustomLabel))
+				Expect(backing.AllowedDevice[0].DeviceId).To(Equal(int32((*pciDevices.DynamicDirectPathIODevices.Default)[0].DeviceID)))
+				Expect(backing.AllowedDevice[0].VendorId).To(Equal(int32((*pciDevices.DynamicDirectPathIODevices.Default)[0].VendorID)))
+				Expect(backing.CustomLabel).To(Equal((*pciDevices.DynamicDirectPathIODevices.Default)[0].CustomLabel))
 			})
 		})
 

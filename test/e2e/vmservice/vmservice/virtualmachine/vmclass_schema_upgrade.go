@@ -59,9 +59,11 @@ type vmClassUpgradeCheckpoint struct {
 	Namespace         string   `json:"namespace"`
 	Phase             string   `json:"phase"`
 	ClassName         string   `json:"className"`
+	DeviceClassName   string   `json:"deviceClassName"`
 	VMName            string   `json:"vmName"`
 	ProfileClassUID   string   `json:"profileClassUID"`
 	ClassUID          string   `json:"classUID"`
+	DeviceClassUID    string   `json:"deviceClassUID"`
 	VMUID             string   `json:"vmUID"`
 	VMVCenterMOID     string   `json:"vmVCenterMOID"`
 	PowerState        string   `json:"powerState"`
@@ -114,6 +116,7 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		}
 
 		checkpoint.ClassName = "vmcu-class-" + checkpoint.RunID
+		checkpoint.DeviceClassName = "vmcu-dev-" + checkpoint.RunID
 		checkpoint.VMName = "vmcu-vm-" + checkpoint.RunID
 		checkpoint.CPU = vmClassUpgradeCPU
 		checkpoint.MemoryMB = vmClassUpgradeMemoryMB
@@ -145,6 +148,27 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 				},
 			},
 		})).To(Succeed())
+		// This API-only fixture does not allocate GPU hardware or depend on a
+		// provider accepting an invented profile. It exercises stored old-version
+		// device data through the real conversion webhook after upgrade.
+		legacyDeviceFixture := &vmopv1a5.VirtualMachineClass{
+			ObjectMeta: metav1.ObjectMeta{Namespace: checkpoint.Namespace, Name: checkpoint.DeviceClassName},
+			Spec: vmopv1a5.VirtualMachineClassSpec{
+				Policies: vmopv1a5.VirtualMachineClassPolicies{Resources: vmopv1a5.VirtualMachineClassResources{
+					Requests: vmopv1a5.VirtualMachineResourceSpec{Memory: resource.MustParse("2Gi")},
+				}}, Hardware: vmopv1a5.VirtualMachineClassHardware{
+					Cpus: int64(cpuCount), Memory: resource.MustParse("2Gi"),
+					Devices: vmopv1a5.VirtualDevices{
+						VGPUDevices: []vmopv1a5.VGPUDevice{{ProfileName: "conversion-fixture"}},
+						DynamicDirectPathIODevices: []vmopv1a5.DynamicDirectPathIODevice{
+							{VendorID: 1, DeviceID: 2, CustomLabel: "same"},
+							{VendorID: 1, DeviceID: 2, CustomLabel: "same"},
+							{VendorID: 1, DeviceID: 2, CustomLabel: "distinct"},
+						},
+					},
+				}},
+		}
+		Expect(client.Create(ctx, legacyDeviceFixture)).To(Succeed())
 		Expect(vmservice.EnsureNamespaceHasAccess(input.WCPClient, checkpoint.ClassName, checkpoint.Namespace)).To(Succeed())
 
 		By("capturing baseline API identities using v1alpha5 reads only")
@@ -170,7 +194,13 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 		Expect(err).NotTo(HaveOccurred())
 		Expect(client.Update(ctx, legacyClass)).To(Succeed())
 		checkpoint.ClassUID = string(legacyClass.UID)
+		legacyDeviceClass := &vmopv1a5.VirtualMachineClass{}
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: checkpoint.DeviceClassName}, legacyDeviceClass)).To(Succeed())
+		}, 5*time.Minute, 5*time.Second).Should(Succeed())
+		checkpoint.DeviceClassUID = string(legacyDeviceClass.UID)
 		Expect(checkpoint.ClassUID).NotTo(BeEmpty())
+		Expect(checkpoint.DeviceClassUID).NotTo(BeEmpty())
 
 		By("persisting a legacy namespace profile class without allocating capacity")
 		// This isolated API fixture exercises stored profile migration. It does
@@ -281,6 +311,7 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 			wcp.WaitForNamespaceReady(input.WCPClient, checkpoint.Namespace)
 			Expect(client.Delete(cleanupCtx, &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Namespace: checkpoint.Namespace, Name: checkpoint.ClassName + "-profile"}})).To(Succeed())
 			By("deleting the test VMClasses")
+			Expect(client.Delete(cleanupCtx, &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Namespace: checkpoint.Namespace, Name: checkpoint.DeviceClassName}})).To(Succeed())
 			vmservice.VerifyVMClassDeletion(input.WCPClient, checkpoint.ClassName)
 			Expect(client.Delete(cleanupCtx, checkpointConfigMap)).To(Succeed())
 		})
@@ -342,6 +373,20 @@ func VMClassSchemaUpgradeSpec(ctx context.Context, inputGetter func() VMClassSch
 			g.Expect(matching.Spec.ReservedProfileName).To(Equal(profileClass.Spec.ReservedProfileName))
 			g.Expect(matching.Spec.ReservedSlots).To(BeZero())
 		}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+		By("verifying the converted vGPU device default from the old class")
+		deviceClass := &vmopv1.VirtualMachineClass{}
+		Expect(client.Get(ctx, ctrlclient.ObjectKey{Namespace: checkpoint.Namespace, Name: checkpoint.DeviceClassName}, deviceClass)).To(Succeed())
+		Expect(string(deviceClass.UID)).To(Equal(checkpoint.DeviceClassUID))
+		Expect(deviceClass.Spec.Hardware.Devices.VGPUDevices).NotTo(BeNil())
+		Expect(deviceClass.Spec.Hardware.Devices.VGPUDevices.Default).NotTo(BeNil())
+		Expect(*deviceClass.Spec.Hardware.Devices.VGPUDevices.Default).To(HaveLen(1))
+		Expect((*deviceClass.Spec.Hardware.Devices.VGPUDevices.Default)[0].ProfileName).To(Equal("conversion-fixture"))
+
+		Expect(*deviceClass.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).To(Equal([]vmopv1.DynamicDirectPathIODevice{
+			{VendorID: 1, DeviceID: 2, CustomLabel: "same", Count: 2},
+			{VendorID: 1, DeviceID: 2, CustomLabel: "distinct", Count: 1},
+		}))
 
 		By("checking the original VM identity, materialized resources, and power state after upgrade")
 		vm := &vmopv1.VirtualMachine{}

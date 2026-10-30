@@ -65,16 +65,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*DynamicDirectPathIODevice)(nil), (*v1alpha6.DynamicDirectPathIODevice)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1alpha2_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice(a.(*DynamicDirectPathIODevice), b.(*v1alpha6.DynamicDirectPathIODevice), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1alpha6.DynamicDirectPathIODevice)(nil), (*DynamicDirectPathIODevice)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha2_DynamicDirectPathIODevice(a.(*v1alpha6.DynamicDirectPathIODevice), b.(*DynamicDirectPathIODevice), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*GroupMember)(nil), (*v1alpha6.GroupMember)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha2_GroupMember_To_v1alpha6_GroupMember(a.(*GroupMember), b.(*v1alpha6.GroupMember), scope)
 	}); err != nil {
@@ -237,16 +227,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddGeneratedConversionFunc((*v1alpha6.VSphereClusterModuleStatus)(nil), (*VSphereClusterModuleStatus)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha6_VSphereClusterModuleStatus_To_v1alpha2_VSphereClusterModuleStatus(a.(*v1alpha6.VSphereClusterModuleStatus), b.(*VSphereClusterModuleStatus), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*VirtualDevices)(nil), (*v1alpha6.VirtualDevices)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1alpha2_VirtualDevices_To_v1alpha6_VirtualDevices(a.(*VirtualDevices), b.(*v1alpha6.VirtualDevices), scope)
-	}); err != nil {
-		return err
-	}
-	if err := s.AddGeneratedConversionFunc((*v1alpha6.VirtualDevices)(nil), (*VirtualDevices)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1alpha6_VirtualDevices_To_v1alpha2_VirtualDevices(a.(*v1alpha6.VirtualDevices), b.(*VirtualDevices), scope)
 	}); err != nil {
 		return err
 	}
@@ -870,6 +850,16 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*DynamicDirectPathIODevice)(nil), (*v1alpha6.DynamicDirectPathIODevice)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha2_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice(a.(*DynamicDirectPathIODevice), b.(*v1alpha6.DynamicDirectPathIODevice), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*VirtualDevices)(nil), (*v1alpha6.VirtualDevices)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha2_VirtualDevices_To_v1alpha6_VirtualDevices(a.(*VirtualDevices), b.(*v1alpha6.VirtualDevices), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*VirtualMachineClassHardware)(nil), (*v1alpha6.VirtualMachineClassHardware)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha2_VirtualMachineClassHardware_To_v1alpha6_VirtualMachineClassHardware(a.(*VirtualMachineClassHardware), b.(*v1alpha6.VirtualMachineClassHardware), scope)
 	}); err != nil {
@@ -915,6 +905,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
+	if err := s.AddConversionFunc((*v1alpha6.DynamicDirectPathIODevice)(nil), (*DynamicDirectPathIODevice)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha2_DynamicDirectPathIODevice(a.(*v1alpha6.DynamicDirectPathIODevice), b.(*DynamicDirectPathIODevice), scope)
+	}); err != nil {
+		return err
+	}
 	if err := s.AddConversionFunc((*v1alpha6.PersistentVolumeClaimVolumeSource)(nil), (*PersistentVolumeClaimVolumeSource)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha6_PersistentVolumeClaimVolumeSource_To_v1alpha2_PersistentVolumeClaimVolumeSource(a.(*v1alpha6.PersistentVolumeClaimVolumeSource), b.(*PersistentVolumeClaimVolumeSource), scope)
 	}); err != nil {
@@ -927,6 +922,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddConversionFunc((*v1alpha6.VMAntiAffinitySpec)(nil), (*VMAntiAffinitySpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha6_VMAntiAffinitySpec_To_v1alpha2_VMAntiAffinitySpec(a.(*v1alpha6.VMAntiAffinitySpec), b.(*VMAntiAffinitySpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1alpha6.VirtualDevices)(nil), (*VirtualDevices)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1alpha6_VirtualDevices_To_v1alpha2_VirtualDevices(a.(*v1alpha6.VirtualDevices), b.(*VirtualDevices), scope)
 	}); err != nil {
 		return err
 	}
@@ -1187,23 +1187,18 @@ func Convert_v1alpha6_ClusterVirtualMachineImageList_To_v1alpha2_ClusterVirtualM
 }
 
 func autoConvert_v1alpha2_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice(in *DynamicDirectPathIODevice, out *v1alpha6.DynamicDirectPathIODevice, s conversion.Scope) error {
-	*out = *(*v1alpha6.DynamicDirectPathIODevice)(unsafe.Pointer(in))
+	out.VendorID = in.VendorID
+	out.DeviceID = in.DeviceID
+	out.CustomLabel = in.CustomLabel
 	return nil
-}
-
-// Convert_v1alpha2_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice is an autogenerated conversion function.
-func Convert_v1alpha2_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice(in *DynamicDirectPathIODevice, out *v1alpha6.DynamicDirectPathIODevice, s conversion.Scope) error {
-	return autoConvert_v1alpha2_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice(in, out, s)
 }
 
 func autoConvert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha2_DynamicDirectPathIODevice(in *v1alpha6.DynamicDirectPathIODevice, out *DynamicDirectPathIODevice, s conversion.Scope) error {
-	*out = *(*DynamicDirectPathIODevice)(unsafe.Pointer(in))
+	out.VendorID = in.VendorID
+	out.DeviceID = in.DeviceID
+	// WARNING: in.Count requires manual conversion: does not exist in peer-type
+	out.CustomLabel = in.CustomLabel
 	return nil
-}
-
-// Convert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha2_DynamicDirectPathIODevice is an autogenerated conversion function.
-func Convert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha2_DynamicDirectPathIODevice(in *v1alpha6.DynamicDirectPathIODevice, out *DynamicDirectPathIODevice, s conversion.Scope) error {
-	return autoConvert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha2_DynamicDirectPathIODevice(in, out, s)
 }
 
 func autoConvert_v1alpha2_GroupMember_To_v1alpha6_GroupMember(in *GroupMember, out *v1alpha6.GroupMember, s conversion.Scope) error {
@@ -1560,23 +1555,15 @@ func Convert_v1alpha6_VSphereClusterModuleStatus_To_v1alpha2_VSphereClusterModul
 }
 
 func autoConvert_v1alpha2_VirtualDevices_To_v1alpha6_VirtualDevices(in *VirtualDevices, out *v1alpha6.VirtualDevices, s conversion.Scope) error {
-	*out = *(*v1alpha6.VirtualDevices)(unsafe.Pointer(in))
+	// WARNING: in.VGPUDevices requires manual conversion: inconvertible types ([]github.com/vmware-tanzu/vm-operator/api/v1alpha2.VGPUDevice vs *github.com/vmware-tanzu/vm-operator/api/v1alpha6.VGPUDeviceListPolicy)
+	// WARNING: in.DynamicDirectPathIODevices requires manual conversion: inconvertible types ([]github.com/vmware-tanzu/vm-operator/api/v1alpha2.DynamicDirectPathIODevice vs *github.com/vmware-tanzu/vm-operator/api/v1alpha6.DynamicDirectPathIODeviceListPolicy)
 	return nil
-}
-
-// Convert_v1alpha2_VirtualDevices_To_v1alpha6_VirtualDevices is an autogenerated conversion function.
-func Convert_v1alpha2_VirtualDevices_To_v1alpha6_VirtualDevices(in *VirtualDevices, out *v1alpha6.VirtualDevices, s conversion.Scope) error {
-	return autoConvert_v1alpha2_VirtualDevices_To_v1alpha6_VirtualDevices(in, out, s)
 }
 
 func autoConvert_v1alpha6_VirtualDevices_To_v1alpha2_VirtualDevices(in *v1alpha6.VirtualDevices, out *VirtualDevices, s conversion.Scope) error {
-	*out = *(*VirtualDevices)(unsafe.Pointer(in))
+	// WARNING: in.VGPUDevices requires manual conversion: inconvertible types (*github.com/vmware-tanzu/vm-operator/api/v1alpha6.VGPUDeviceListPolicy vs []github.com/vmware-tanzu/vm-operator/api/v1alpha2.VGPUDevice)
+	// WARNING: in.DynamicDirectPathIODevices requires manual conversion: inconvertible types (*github.com/vmware-tanzu/vm-operator/api/v1alpha6.DynamicDirectPathIODeviceListPolicy vs []github.com/vmware-tanzu/vm-operator/api/v1alpha2.DynamicDirectPathIODevice)
 	return nil
-}
-
-// Convert_v1alpha6_VirtualDevices_To_v1alpha2_VirtualDevices is an autogenerated conversion function.
-func Convert_v1alpha6_VirtualDevices_To_v1alpha2_VirtualDevices(in *v1alpha6.VirtualDevices, out *VirtualDevices, s conversion.Scope) error {
-	return autoConvert_v1alpha6_VirtualDevices_To_v1alpha2_VirtualDevices(in, out, s)
 }
 
 func autoConvert_v1alpha2_VirtualMachine_To_v1alpha6_VirtualMachine(in *VirtualMachine, out *v1alpha6.VirtualMachine, s conversion.Scope) error {

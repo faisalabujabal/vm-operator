@@ -10,6 +10,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
@@ -236,6 +237,16 @@ func intgTestsValidateCreate() {
 			allowed := []string{"gold"}
 			class.Spec.ReservedProfileName = &vmopv1.EnumPolicy{Allowed: &allowed}
 		}, false),
+		Entry("rejects matcher with multiple string operations", func(class *vmopv1.VirtualMachineClass) {
+			allowed := []vmopv1.VGPUDeviceMatcher{{ProfileName: &vmopv1.StringMatcher{
+				Fixed: ptr.To("profile-a"), Glob: ptr.To("profile-*"),
+			}}}
+			class.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{Allowed: &allowed}
+		}, true),
+		Entry("rejects a zero device count", func(class *vmopv1.VirtualMachineClass) {
+			defaults := []vmopv1.DynamicDirectPathIODevice{{VendorID: 1, DeviceID: 2, Count: 0}}
+			class.Spec.Hardware.Devices.DynamicDirectPathIODevices = &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &defaults}
+		}, true),
 	)
 
 	It("rejects invalid boot bounds on update", func() {
@@ -246,6 +257,20 @@ func intgTestsValidateCreate() {
 		Expect(ctx.Client.Update(ctx, class)).NotTo(Succeed())
 	})
 
+	It("preserves DirectPath entries with the same device IDs and distinct labels", func() {
+		class := ctx.vmClass.DeepCopy()
+		defaults := []vmopv1.DynamicDirectPathIODevice{
+			{VendorID: 1, DeviceID: 2, Count: 1, CustomLabel: "first"},
+			{VendorID: 1, DeviceID: 2, Count: 3, CustomLabel: "second"},
+		}
+		class.Spec.Hardware.Devices.DynamicDirectPathIODevices = &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &defaults}
+		Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+
+		var persisted vmopv1.VirtualMachineClass
+		Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(class), &persisted)).To(Succeed())
+		got := *persisted.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default
+		Expect(got).To(ConsistOf(defaults))
+	})
 }
 
 func intgTestsValidateDelete() {

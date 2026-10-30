@@ -111,6 +111,34 @@ func Convert_v1alpha6_VirtualMachineClassResources_To_v1alpha1_VirtualMachineCla
 	return Convert_v1alpha6_VirtualMachineClassResourceSpec_To_v1alpha1_VirtualMachineResourceSpec(&in.Limits, &out.Limits, s)
 }
 
+// Convert_v1alpha1_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice converts one legacy device.
+func Convert_v1alpha1_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice(in *DynamicDirectPathIODevice, out *vmopv1.DynamicDirectPathIODevice, s apiconversion.Scope) error {
+	if err := autoConvert_v1alpha1_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice(in, out, s); err != nil {
+		return err
+	}
+	out.Count = 1
+	return nil
+}
+
+// Convert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha1_DynamicDirectPathIODevice projects the legacy device identity.
+func Convert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha1_DynamicDirectPathIODevice(in *vmopv1.DynamicDirectPathIODevice, out *DynamicDirectPathIODevice, s apiconversion.Scope) error {
+	return autoConvert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha1_DynamicDirectPathIODevice(in, out, s)
+}
+
+// Convert_v1alpha1_VirtualDevices_To_v1alpha6_VirtualDevices converts legacy device lists to presets.
+func Convert_v1alpha1_VirtualDevices_To_v1alpha6_VirtualDevices(in *VirtualDevices, out *vmopv1.VirtualDevices, s apiconversion.Scope) error {
+	return vmopv1.ConvertLegacyClassDevices(in.VGPUDevices, in.DynamicDirectPathIODevices, out, s,
+		Convert_v1alpha1_VGPUDevice_To_v1alpha6_VGPUDevice,
+		Convert_v1alpha1_DynamicDirectPathIODevice_To_v1alpha6_DynamicDirectPathIODevice)
+}
+
+// Convert_v1alpha6_VirtualDevices_To_v1alpha1_VirtualDevices projects the default device identities.
+func Convert_v1alpha6_VirtualDevices_To_v1alpha1_VirtualDevices(in *vmopv1.VirtualDevices, out *VirtualDevices, s apiconversion.Scope) error {
+	return vmopv1.ProjectClassDevices(in, &out.VGPUDevices, &out.DynamicDirectPathIODevices, s,
+		Convert_v1alpha6_VGPUDevice_To_v1alpha1_VGPUDevice,
+		Convert_v1alpha6_DynamicDirectPathIODevice_To_v1alpha1_DynamicDirectPathIODevice)
+}
+
 // Convert_v1alpha1_VirtualMachineResourceSpec_To_v1alpha6_VirtualMachineClassResourceSpec converts legacy allocations to fixed ranges.
 func Convert_v1alpha1_VirtualMachineResourceSpec_To_v1alpha6_VirtualMachineClassResourceSpec(in *VirtualMachineResourceSpec, out *vmopv1.VirtualMachineClassResourceSpec, _ apiconversion.Scope) error {
 	*out = vmopv1.FixedClassResourcePair(in.Cpu, in.Memory)

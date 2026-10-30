@@ -24,19 +24,19 @@ A collection field's shape follows what its value is. A collection of independen
 | Collection | Shape | Milestone |
 |---|---|---|
 | `advanced.extraConfig` | `ListPolicy` | 1 |
-| `hardware.devices.vgpuDevices` | `ListPolicy`; item `{profileName, count}`, key `profileName` | 1 |
-| `hardware.devices.dynamicDirectPathIODevices` | `ListPolicy`; item `{vendorID, deviceID, customLabel, count}`, key `vendorID` + `deviceID`. `customLabel`, when set, is passed through to the device backing; it is not a key. | 1 |
+| `hardware.devices.vgpuDevices` | `ListPolicy`; item `{profileName}`, key `profileName`. The initial migration preserves one device per profile; exposing multiple devices of the same profile is deferred. | 1 |
+| `hardware.devices.dynamicDirectPathIODevices` | `ListPolicy`; item `{vendorID, deviceID, customLabel, count}`, key `vendorID` + `deviceID` + `customLabel`. An omitted label is normalized to the empty string. The label remains part of the device backing and identity so older classes with the same numeric IDs and different labels remain representable. | 1 |
 | `advanced.pnumaNodeAffinity` | `Int32SetPolicy` of node IDs, e.g. `{default: [0,1], allowed: [{members: [0,1]}, {members: [2,3]}], required: true}`. Unset `allowed` = any set of valid node IDs; `required: false` permits an explicit `[]` (no pinning). Each node ID is checked against `ConfigTarget.numNumaNodes`. | 1 |
 | `hardware.cpuFeatureMask` | Preset of the top class only in Milestone 1 (no VM field, so nothing below it to govern); checked against config options `cpuFeatureMaskSupported`. [NEEDS CLARIFICATION: shape for Milestone 2 child classes. Each CPUID leaf's mask is one setting, but the leaves are independent items.] | 2 |
 
-Device items: independent count bounds and required entries are deferred. A device's quantity is its `count`.
+Device items: independent count bounds and required entries are deferred. DirectPath `count` preserves the quantity of repeated legacy entries with the same identity. The initial migration does not add a vGPU `count` field or change devices represented in raw `configSpec`. Before adding inline VM device fields, resolve the grouped-device model below against the VM schema reference's individually named PCI devices and per-device settings; that design decision is separate from this migration.
 
 **Matching names.** An item's key fields have the same names in the environment-browser entry, the class item and the VM item, so choosing an option copies the entry's key fields. Environment-browser entries may carry extra display fields (`vendorName`, `deviceName`, `customLabel`); class and VM items add payload such as `count`.
 
 | Item | Environment-browser entry | Class item | VM item |
 |---|---|---|---|
 | Dynamic DirectPath I/O | ConfigTarget `dynamicPassthroughDevices[]`: `vendorID`, `deviceID` (+ `vendorName`, `deviceName`, `customLabel`) | `vendorID`, `deviceID`, `customLabel`, `count` | same as the class item |
-| vGPU | ConfigTarget `vgpuProfile[]`: `profileName` (+ display fields) | `profileName`, `count` | same as the class item |
+| vGPU | ConfigTarget `vgpuProfile[]`: `profileName` (+ display fields) | `profileName` | Deferred: settle individual device identity and per-device settings before adding the VM counterpart. |
 | pNUMA node | ConfigTarget `numNumaNodes` (IDs 0..n-1) | node ID | `pnumaNodeAffinity []int32` |
 
 ## `VirtualMachineClass.spec`

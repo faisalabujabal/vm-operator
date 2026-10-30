@@ -40,12 +40,16 @@ func ClassConfigSpecFromClassSpec(
 		// Projecting a typed preset creates ConfigSpec JSON even when the class
 		// had none. Its typed devices still apply in that case.
 		if len(spec.ConfigSpec) == 0 {
-			configSpec.DeviceChange = append(configSpec.DeviceChange, ConfigSpecFromVMClassDevices(spec).DeviceChange...)
+			devices, err := ConfigSpecFromVMClassDevices(spec)
+			if err != nil {
+				return vimtypes.VirtualMachineConfigSpec{}, fmt.Errorf("project class devices: %w", err)
+			}
+			configSpec.DeviceChange = append(configSpec.DeviceChange, devices.DeviceChange...)
 		}
 		return configSpec, nil
 	}
 
-	return ConfigSpecFromVMClassDevices(spec), nil
+	return ConfigSpecFromVMClassDevices(spec)
 }
 
 // ClassConfigSpecForVirtualMachine returns the ConfigSpec used to derive NIC

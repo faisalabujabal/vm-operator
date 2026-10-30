@@ -514,14 +514,79 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(*hub.Spec.ReservedProfileName.Allowed).To(Equal([]string{"profile-a"}))
 				Expect(*hub.Spec.ReservedProfileName.Required).To(BeTrue())
 				Expect(hub.Spec.ReservedSlots).To(BeZero())
-				Expect(hub.Spec.Hardware.Devices.VGPUDevices).To(Equal([]vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}))
-				Expect(hub.Spec.Hardware.Devices.DynamicDirectPathIODevices).To(Equal([]vmopv1.DynamicDirectPathIODevice{
-					{VendorID: 1, DeviceID: 2, CustomLabel: "a"}, {VendorID: 1, DeviceID: 2, CustomLabel: "b"},
+				Expect(*hub.Spec.Hardware.Devices.VGPUDevices.Default).To(Equal([]vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}))
+				Expect(*hub.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).To(Equal([]vmopv1.DynamicDirectPathIODevice{
+					{VendorID: 1, DeviceID: 2, CustomLabel: "a", Count: 1}, {VendorID: 1, DeviceID: 2, CustomLabel: "b", Count: 1},
 				}))
 				Expect(hub.Spec.Hardware.InstanceStorage.StorageClass).To(Equal("local"))
 				Expect(hub.Spec.Hardware.InstanceStorage.Volumes[0].Size.String()).To(Equal("16Gi"))
 				Expect(hub.Spec.ConfigSpec).To(MatchJSON(`{"_typeName":"VirtualMachineConfigSpec","annotation":"keep"}`))
 				Expect(apiequality.Semantic.DeepEqual(spoke, before)).To(BeTrue())
+			})
+
+			It("aggregates repeated DirectPath identities and preserves distinct labels", func() {
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"hardware":{"devices":{"dynamicDirectPathIODevices":[
+					{"vendorID":1,"deviceID":2,"customLabel":"a"},
+					{"vendorID":1,"deviceID":2,"customLabel":"b"},
+					{"vendorID":1,"deviceID":2,"customLabel":"a"}]}}}}`), spoke)).To(Succeed())
+				var hub vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&hub)).To(Succeed())
+				Expect(*hub.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).To(Equal([]vmopv1.DynamicDirectPathIODevice{
+					{VendorID: 1, DeviceID: 2, CustomLabel: "a", Count: 2},
+					{VendorID: 1, DeviceID: 2, CustomLabel: "b", Count: 1},
+				}))
+				restored := version.newSpoke()
+				Expect(restored.ConvertFrom(&hub)).To(Succeed())
+				delete(restored.(metav1.Object).GetAnnotations(), utilconversion.AnnotationKey)
+				data, err := json.Marshal(restored)
+				Expect(err).NotTo(HaveOccurred())
+				var body struct {
+					Spec struct {
+						Hardware struct {
+							Devices struct {
+								DynamicDirectPathIODevices []vmopv1a5.DynamicDirectPathIODevice `json:"dynamicDirectPathIODevices"`
+							} `json:"devices"`
+						} `json:"hardware"`
+					} `json:"spec"`
+				}
+				Expect(json.Unmarshal(data, &body)).To(Succeed())
+				Expect(body.Spec.Hardware.Devices.DynamicDirectPathIODevices).To(Equal([]vmopv1a5.DynamicDirectPathIODevice{
+					{VendorID: 1, DeviceID: 2, CustomLabel: "a"},
+					{VendorID: 1, DeviceID: 2, CustomLabel: "a"},
+					{VendorID: 1, DeviceID: 2, CustomLabel: "b"},
+				}))
+			})
+
+			It("distinguishes omitted legacy device lists from explicitly empty lists", func() {
+				var omitted vmopv1.VirtualMachineClass
+				Expect(version.newSpoke().ConvertTo(&omitted)).To(Succeed())
+				Expect(omitted.Spec.Hardware.Devices.VGPUDevices).To(BeNil())
+				Expect(omitted.Spec.Hardware.Devices.DynamicDirectPathIODevices).To(BeNil())
+				spoke := version.newSpoke()
+				Expect(json.Unmarshal([]byte(`{"spec":{"hardware":{"devices":{"vgpuDevices":[],"dynamicDirectPathIODevices":[]}}}}`), spoke)).To(Succeed())
+				var empty vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&empty)).To(Succeed())
+				Expect(empty.Spec.Hardware.Devices.VGPUDevices.Default).NotTo(BeNil())
+				Expect(*empty.Spec.Hardware.Devices.VGPUDevices.Default).NotTo(BeNil())
+				Expect(*empty.Spec.Hardware.Devices.VGPUDevices.Default).To(BeEmpty())
+				Expect(empty.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).NotTo(BeNil())
+				Expect(*empty.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).NotTo(BeNil())
+				Expect(*empty.Spec.Hardware.Devices.DynamicDirectPathIODevices.Default).To(BeEmpty())
+			})
+
+			It("rejects nonpositive DirectPath counts before legacy projection", func() {
+				for _, count := range []int32{0, -1} {
+					devices := []vmopv1.DynamicDirectPathIODevice{{VendorID: 1, DeviceID: 2, Count: count}}
+					hub := &vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{DynamicDirectPathIODevices: &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &devices}}}}}
+					Expect(version.newSpoke().ConvertFrom(hub)).To(MatchError("dynamic DirectPath device count must be positive"))
+				}
+			})
+
+			It("rejects an excessive device projection before allocating it", func() {
+				devices := []vmopv1.DynamicDirectPathIODevice{{VendorID: 1, DeviceID: 2, Count: 2147483647}}
+				hub := &vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{DynamicDirectPathIODevices: &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &devices}}}}}
+				Expect(version.newSpoke().ConvertFrom(hub)).To(MatchError(ContainSubstring("projection exceeds")))
 			})
 
 			It("preserves policies through an unchanged older-client write", func() {
@@ -687,12 +752,22 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(restored.Spec).To(Equal(*expected))
 			})
 
+			It("honors older-writer device edits instead of restoring stale device policies", func() {
+				spoke := version.newSpoke()
+				Expect(spoke.ConvertFrom(classWithPolicies())).To(Succeed())
+				Expect(json.Unmarshal([]byte(`{"spec":{"hardware":{"devices":{"vgpuDevices":[{"profileName":"gpu-b"}]}}}}`), spoke)).To(Succeed())
+				var restored vmopv1.VirtualMachineClass
+				Expect(spoke.ConvertTo(&restored)).To(Succeed())
+				Expect(*restored.Spec.Hardware.Devices.VGPUDevices.Default).To(Equal([]vmopv1.VGPUDevice{{ProfileName: "gpu-b"}}))
+				Expect(restored.Spec.Hardware.Devices.VGPUDevices.Allowed).To(BeNil())
+			})
+
 			It("preserves nil, explicit zero and empty list policy values", func() {
 				zero := resource.MustParse("0")
 				empty := []vmopv1.VGPUDevice{}
 				hub := &vmopv1.VirtualMachineClass{Spec: vmopv1.VirtualMachineClassSpec{
 					Resources: vmopv1.VirtualMachineClassResources{Requests: vmopv1.VirtualMachineClassResourceSpec{CPU: &vmopv1.ResourceQuantityRange{Default: &zero}}},
-					Hardware:  vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: empty}},
+					Hardware:  vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: &vmopv1.VGPUDeviceListPolicy{Default: &empty}}},
 				}}
 				spoke := version.newSpoke()
 				Expect(spoke.ConvertFrom(hub)).To(Succeed())
@@ -702,8 +777,8 @@ var _ = Describe("VMClass schema migration", Label("api"), func() {
 				Expect(restored.Spec.Resources.Requests.CPU.Default).NotTo(BeNil())
 				Expect(restored.Spec.Resources.Requests.CPU.Default.IsZero()).To(BeTrue())
 				Expect(restored.Spec.Resources.Requests.CPU.Min).To(BeNil())
-				Expect(restored.Spec.Hardware.Devices.VGPUDevices).NotTo(BeNil())
-				Expect(restored.Spec.Hardware.Devices.VGPUDevices).To(BeEmpty())
+				Expect(restored.Spec.Hardware.Devices.VGPUDevices.Default).NotTo(BeNil())
+				Expect(*restored.Spec.Hardware.Devices.VGPUDevices.Default).To(BeEmpty())
 			})
 
 			It("returns malformed conversion data without modifying the input", func() {
@@ -834,6 +909,8 @@ func classWithPolicies() *vmopv1.VirtualMachineClass {
 	profiles := []string{"profile-a", "profile-b"}
 	required := true
 	devices := []vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}
+	glob := "gpu-*"
+	allowed := []vmopv1.VGPUDeviceMatcher{{ProfileName: &vmopv1.StringMatcher{Glob: &glob}}}
 	return &vmopv1.VirtualMachineClass{
 		ObjectMeta: metav1.ObjectMeta{Name: "class", Namespace: "tenant"},
 		Spec: vmopv1.VirtualMachineClassSpec{
@@ -841,7 +918,7 @@ func classWithPolicies() *vmopv1.VirtualMachineClass {
 				CPU:    &vmopv1.ResourceQuantityRange{Min: &minimum, Max: &maximum, Default: &def},
 				Memory: &vmopv1.ResourceQuantityRange{Default: &memory},
 			}},
-			Hardware:            vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: devices}},
+			Hardware:            vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: &vmopv1.VGPUDeviceListPolicy{Default: &devices, Allowed: &allowed}}},
 			ReservedProfileName: &vmopv1.EnumPolicy{Default: &profile, Allowed: &profiles, Required: &required},
 			ReservedSlots:       4,
 		},

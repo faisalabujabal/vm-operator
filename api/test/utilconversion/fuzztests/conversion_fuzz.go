@@ -157,7 +157,7 @@ func HubSpokeHub(input FuzzTestFuncInput) {
 
 // ClassPolicyFuzzerFuncs limits fuzz inputs to JSON-representable class values.
 // In particular, a pointer to a nil slice is encoded as null, not an explicit
-// empty array.
+// empty array, and device counts must be positive before legacy expansion.
 func ClassPolicyFuzzerFuncs(_ runtimeserializer.CodecFactory) []interface{} {
 	return []interface{}{
 		func(in *vmopv1.VirtualMachineClass, c randfill.Continue) {
@@ -177,6 +177,11 @@ func ClassPolicyFuzzerFuncs(_ runtimeserializer.CodecFactory) []interface{} {
 				}
 			}
 			in.Spec.ConfigSpec = json.RawMessage(`{"_typeName":"VirtualMachineConfigSpec"}`)
+			if p := in.Spec.Hardware.Devices.DynamicDirectPathIODevices; p != nil && p.Default != nil {
+				for i := range *p.Default {
+					(*p.Default)[i].Count = int32(1 + c.Intn(3))
+				}
+			}
 			data, err := json.Marshal(in)
 			if err != nil {
 				panic(err)

@@ -447,3 +447,22 @@ func applyTestBootDefaultsWithObjects(vm *vmopv1.VirtualMachine, spec vmopv1.Vir
 	})
 	return vmclass.ApplyDefaults(ctx, client, provider, vm, oldVM)
 }
+
+var _ = Describe("Device policy defaults", Label(testlabels.API), func() {
+	It("preserves absent, empty and populated defaults for both device types", func() {
+		Expect(vmclass.ListDefaults[vmopv1.VGPUDevice](nil)).To(BeNil())
+		var absent *vmopv1.VGPUDeviceListPolicy
+		Expect(vmclass.ListDefaults(absent)).To(BeNil())
+		Expect(vmclass.ListDefaults(&vmopv1.VGPUDeviceListPolicy{})).To(BeNil())
+		empty := []vmopv1.VGPUDevice{}
+		Expect(vmclass.ListDefaults(&vmopv1.VGPUDeviceListPolicy{Default: &empty})).NotTo(BeNil())
+		devices := []vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}
+		Expect(vmclass.ListDefaults(&vmopv1.VGPUDeviceListPolicy{Default: &devices})).To(Equal(devices))
+		var direct *vmopv1.DynamicDirectPathIODeviceListPolicy
+		Expect(vmclass.ListDefaults(direct)).To(BeNil())
+		emptyDirect := []vmopv1.DynamicDirectPathIODevice{}
+		Expect(vmclass.ListDefaults(&vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &emptyDirect})).NotTo(BeNil())
+		directDevices := []vmopv1.DynamicDirectPathIODevice{{VendorID: 1, DeviceID: 2, Count: 2}}
+		Expect(vmclass.ListDefaults(&vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &directDevices})).To(Equal(directDevices))
+	})
+})

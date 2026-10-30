@@ -1734,38 +1734,208 @@ spec:
                     description: Devices describes the class's device configuration.
                     properties:
                       dynamicDirectPathIODevices:
-                        items:
-                          description: |-
-                            DynamicDirectPathIODevice contains the configuration corresponding to a
-                            Dynamic DirectPath I/O device.
-                          properties:
-                            customLabel:
-                              type: string
-                            deviceID:
-                              format: int64
-                              type: integer
-                            vendorID:
-                              format: int64
-                              type: integer
-                          required:
-                          - deviceID
-                          - vendorID
-                          type: object
-                        type: array
+                        description: DynamicDirectPathIODevices describes Dynamic
+                          DirectPath I/O devices.
+                        properties:
+                          allowed:
+                            description: Allowed matches permitted device identities.
+                            items:
+                              description: DynamicDirectPathIODeviceMatcher matches
+                                a Dynamic DirectPath I/O identity.
+                              properties:
+                                customLabel:
+                                  description: CustomLabel matches the device backing
+                                    label; omission matches any label.
+                                  properties:
+                                    fixed:
+                                      description: Fixed matches a literal string.
+                                      type: string
+                                    glob:
+                                      description: Glob matches a shell-style glob
+                                        pattern.
+                                      type: string
+                                    regex:
+                                      description: Regex matches a regular expression.
+                                      type: string
+                                  type: object
+                                  x-kubernetes-validations:
+                                  - message: exactly one of fixed, glob or regex must
+                                      be set
+                                    rule: '(has(self.fixed) ? 1 : 0) + (has(self.glob)
+                                      ? 1 : 0) + (has(self.regex) ? 1 : 0) == 1'
+                                deviceID:
+                                  description: DeviceID matches the device; omission
+                                    matches every device.
+                                  format: int64
+                                  type: integer
+                                vendorID:
+                                  description: VendorID matches the vendor; omission
+                                    matches every vendor.
+                                  format: int64
+                                  type: integer
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          default:
+                            description: Default contains devices supplied by the
+                              class.
+                            items:
+                              description: |-
+                                DynamicDirectPathIODevice contains the configuration corresponding to a
+                                Dynamic DirectPath I/O device.
+                              properties:
+                                count:
+                                  description: Count is the number of devices with
+                                    this identity.
+                                  format: int32
+                                  minimum: 1
+                                  type: integer
+                                customLabel:
+                                  default: ""
+                                  description: |-
+                                    CustomLabel selects a device backing and is part of the device identity.
+                                    An empty label selects an unlabeled device.
+                                  type: string
+                                deviceID:
+                                  description: DeviceID identifies the device model.
+                                  format: int64
+                                  type: integer
+                                vendorID:
+                                  description: VendorID identifies the device vendor.
+                                  format: int64
+                                  type: integer
+                              required:
+                              - count
+                              - deviceID
+                              - vendorID
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - vendorID
+                            - deviceID
+                            - customLabel
+                            x-kubernetes-list-type: map
+                          denied:
+                            description: Denied matches forbidden identities and takes
+                              precedence over Allowed.
+                            items:
+                              description: DynamicDirectPathIODeviceMatcher matches
+                                a Dynamic DirectPath I/O identity.
+                              properties:
+                                customLabel:
+                                  description: CustomLabel matches the device backing
+                                    label; omission matches any label.
+                                  properties:
+                                    fixed:
+                                      description: Fixed matches a literal string.
+                                      type: string
+                                    glob:
+                                      description: Glob matches a shell-style glob
+                                        pattern.
+                                      type: string
+                                    regex:
+                                      description: Regex matches a regular expression.
+                                      type: string
+                                  type: object
+                                  x-kubernetes-validations:
+                                  - message: exactly one of fixed, glob or regex must
+                                      be set
+                                    rule: '(has(self.fixed) ? 1 : 0) + (has(self.glob)
+                                      ? 1 : 0) + (has(self.regex) ? 1 : 0) == 1'
+                                deviceID:
+                                  description: DeviceID matches the device; omission
+                                    matches every device.
+                                  format: int64
+                                  type: integer
+                                vendorID:
+                                  description: VendorID matches the vendor; omission
+                                    matches every vendor.
+                                  format: int64
+                                  type: integer
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        type: object
                       vgpuDevices:
-                        items:
-                          description: VGPUDevice contains the configuration corresponding
-                            to a vGPU device.
-                          properties:
-                            profileName:
-                              type: string
-                          required:
-                          - profileName
-                          type: object
-                        type: array
-                        x-kubernetes-list-map-keys:
-                        - profileName
-                        x-kubernetes-list-type: map
+                        description: VGPUDevices describes vGPU devices.
+                        properties:
+                          allowed:
+                            description: Allowed matches permitted device identities.
+                            items:
+                              description: VGPUDeviceMatcher matches the identifying
+                                fields of a vGPU device.
+                              properties:
+                                profileName:
+                                  description: ProfileName matches the profile name;
+                                    omission matches every profile.
+                                  properties:
+                                    fixed:
+                                      description: Fixed matches a literal string.
+                                      type: string
+                                    glob:
+                                      description: Glob matches a shell-style glob
+                                        pattern.
+                                      type: string
+                                    regex:
+                                      description: Regex matches a regular expression.
+                                      type: string
+                                  type: object
+                                  x-kubernetes-validations:
+                                  - message: exactly one of fixed, glob or regex must
+                                      be set
+                                    rule: '(has(self.fixed) ? 1 : 0) + (has(self.glob)
+                                      ? 1 : 0) + (has(self.regex) ? 1 : 0) == 1'
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          default:
+                            description: Default contains devices supplied by the
+                              class.
+                            items:
+                              description: VGPUDevice contains the configuration corresponding
+                                to a vGPU device.
+                              properties:
+                                profileName:
+                                  description: ProfileName identifies the vGPU profile.
+                                  type: string
+                              required:
+                              - profileName
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - profileName
+                            x-kubernetes-list-type: map
+                          denied:
+                            description: Denied matches forbidden identities and takes
+                              precedence over Allowed.
+                            items:
+                              description: VGPUDeviceMatcher matches the identifying
+                                fields of a vGPU device.
+                              properties:
+                                profileName:
+                                  description: ProfileName matches the profile name;
+                                    omission matches every profile.
+                                  properties:
+                                    fixed:
+                                      description: Fixed matches a literal string.
+                                      type: string
+                                    glob:
+                                      description: Glob matches a shell-style glob
+                                        pattern.
+                                      type: string
+                                    regex:
+                                      description: Regex matches a regular expression.
+                                      type: string
+                                  type: object
+                                  x-kubernetes-validations:
+                                  - message: exactly one of fixed, glob or regex must
+                                      be set
+                                    rule: '(has(self.fixed) ? 1 : 0) + (has(self.glob)
+                                      ? 1 : 0) + (has(self.regex) ? 1 : 0) == 1'
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        type: object
                     type: object
                   instanceStorage:
                     description: InstanceStorage describes instance storage volumes.

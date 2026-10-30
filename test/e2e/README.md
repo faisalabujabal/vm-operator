@@ -124,7 +124,7 @@ E2E_NAMESPACE=<existing-namespace> VMCLASS_UPGRADE_RUN_ID=<same-unique-dns-label
 The run ID must be a DNS label no longer than 31 characters. The prepare
 invocation uses v1alpha5 VM creation and VMClass API reads, along with the
 baseline-compatible DCLI class provisioning path. Verify checks the converted
-v1alpha6 VMClass resource defaults, the identity, materialized spec,
+v1alpha6 VMClass resource and device defaults, the identity, materialized spec,
 and vSphere compute settings of the existing powered-on VM against its saved
 baseline, and a new v1alpha6 VM created from the upgraded legacy class.
 
@@ -355,3 +355,4 @@ This E2E framework ensures VM Operator reliability across diverse environments a
 
 Boot C1 extends the experimental typed-class VM lifecycle and staged schema-upgrade fixtures with millisecond boot delay/retry delay, retry enabled and EFI secure boot disabled. The baseline DCLI class sets these values in its raw ConfigSpec; candidate verification checks the promoted policies and actual vSphere boot configuration of both preserved and newly created VMs. These scenarios are written and compile checked; cluster execution is pending. Firmware/network protocol compatibility and the one-shot boot-setup lifecycle remain tracked separately in the vmclass-v2 tasks.
 The class reserved-profile sibling extends this staged fixture with a namespace-scoped legacy class containing a profile ID and zero reserved slots. Verification checks the converted profile policy and stable UID, persists a richer policy through an older API writer, and observes the complete policy in the controller-created immutable class instance. No VM uses this synthetic profile: this proves API persistence/conversion and class-controller behavior, not capacity allocation, provider namespace-copy behavior, or a reserved VM in vSphere. The scenario is written but has not been executed on a Supervisor.
+The experimental `VM-CLASS-DEVICE-CONVERSION` test exercises the served device-policy API, legacy projections and older-client writes without allocating GPU hardware. The staged `VM-CLASS-SCHEMA-UPGRADE` fixture also stores an old-API device class and verifies vGPU and repeated DirectPath identities after upgrade. These API fixtures do not verify PCI device realization on a GPU host; provider unit tests cover generated device configuration. Both fixtures preserve full guest memory reservation for compatibility with old class admission behavior.

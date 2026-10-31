@@ -27,6 +27,39 @@ import (
 
 // VMClassGovernanceSpec verifies governance API and controller behavior.
 func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchemaUpgradeInput) {
+	It("defaults governing enforcement and device preset memory locks", Label("core-functional", "experimental"), func() {
+		input := inputGetter()
+		proxy := input.ClusterProxy.(*common.VMServiceClusterProxy)
+		skipper.SkipUnlessInfraIs(input.Config.InfraConfig.InfraName, consts.WCP)
+		skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, proxy, consts.VMServiceClasslessVMCapabilityName)
+		client := proxy.GetClient()
+		class := &vmopv1.VirtualMachineClass{
+			ObjectMeta: metav1.ObjectMeta{Namespace: input.WCPNamespaceName, GenerateName: "class-defaults-"},
+			Spec: vmopv1.VirtualMachineClassSpec{
+				Zones:   &[]string{},
+				Governs: &vmopv1.VirtualMachineClassGovernance{ExistingVMs: vmopv1.VirtualMachineClassExistingVMsAllowOnViolation},
+				Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{
+					VGPUDevices: &vmopv1.VGPUDeviceListPolicy{Default: ptr.To([]vmopv1.VGPUDevice{{ProfileName: "schema-only-gpu"}})},
+				}},
+			},
+		}
+		Expect(client.Create(ctx, class)).To(Succeed())
+		DeferCleanup(func(cleanupCtx context.Context) { Expect(client.Delete(cleanupCtx, class)).To(Succeed()) })
+		key := ctrlclient.ObjectKeyFromObject(class)
+		Expect(client.Get(ctx, key, class)).To(Succeed())
+		Expect(class.Spec.Governs.Enforcement).To(Equal(vmopv1.VirtualMachineClassEnforcementDeny))
+		Expect(class.Spec.MemoryAdvanced.ReservationLockedToMax).To(Equal(vmopv1.FixedClassBool(true)))
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, key, class)).To(Succeed())
+			class.Spec.Governs.Enforcement = ""
+			class.Spec.MemoryAdvanced.ReservationLockedToMax = vmopv1.FixedClassBool(false)
+			g.Expect(client.Update(ctx, class)).To(Succeed())
+		}).Should(Succeed())
+		Expect(client.Get(ctx, key, class)).To(Succeed())
+		Expect(class.Spec.Governs.Enforcement).To(Equal(vmopv1.VirtualMachineClassEnforcementDeny))
+		Expect(class.Spec.MemoryAdvanced.ReservationLockedToMax).To(Equal(vmopv1.FixedClassBool(true)))
+	})
+
 	It("preserves class status and empty governance through older writers", Label("core-functional", "experimental"), func() {
 		input := inputGetter()
 		proxy := input.ClusterProxy.(*common.VMServiceClusterProxy)

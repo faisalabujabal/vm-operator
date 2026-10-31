@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -40,7 +41,7 @@ const (
 
 // AddToManager adds the webhook to the provided manager.
 func AddToManager(ctx *pkgctx.ControllerManagerContext, mgr ctrlmgr.Manager) error {
-	hook, err := builder.NewValidatingWebhook(ctx, mgr, webHookName, NewValidator(mgr.GetClient()))
+	hook, err := builder.NewValidatingWebhook(ctx, mgr, webHookName, newValidator(mgr.GetAPIReader()))
 	if err != nil {
 		return fmt.Errorf("failed to create VirtualMachineClass validation webhook: %w", err)
 	}
@@ -50,13 +51,19 @@ func AddToManager(ctx *pkgctx.ControllerManagerContext, mgr ctrlmgr.Manager) err
 }
 
 // NewValidator returns the package's Validator.
-func NewValidator(_ client.Client) builder.Validator {
+func NewValidator(c client.Client) builder.Validator {
+	return newValidator(c)
+}
+
+func newValidator(reader client.Reader) builder.Validator {
 	return validator{
 		converter: runtime.DefaultUnstructuredConverter,
+		reader:    reader,
 	}
 }
 
 type validator struct {
+	reader    client.Reader
 	converter runtime.UnstructuredConverter
 }
 
@@ -75,6 +82,11 @@ func (v validator) ValidateCreate(ctx *pkgctx.WebhookRequestContext) admission.R
 	fieldErrs = append(fieldErrs, v.validatePolicies(ctx, vmClass)...)
 	fieldErrs = append(fieldErrs, vmclass.ValidateAdvancedPolicies(&vmClass.Spec)...)
 	fieldErrs = append(fieldErrs, validateComputePolicies(vmClass)...)
+	governanceErrs, err := v.validateGovernance(ctx, vmClass)
+	if err != nil {
+		return webhook.Errored(http.StatusInternalServerError, err)
+	}
+	fieldErrs = append(fieldErrs, governanceErrs...)
 
 	validationErrs := make([]string, 0, len(fieldErrs))
 	for _, fieldErr := range fieldErrs {
@@ -99,6 +111,19 @@ func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.R
 	// Keep the existing allocation-update behavior; validate the new compute
 	// enum domain on both create and update.
 	fieldErrs = append(fieldErrs, validateComputePolicies(vmClass)...)
+	oldClass, err := v.vmClassFromUnstructured(ctx.OldObj)
+	if err != nil {
+		return webhook.Errored(http.StatusBadRequest, err)
+	}
+	// A narrowed ceiling may make an existing class noncompliant. Do not
+	// block metadata/finalizer housekeeping while the controller reports it.
+	if !apiequality.Semantic.DeepEqual(vmClass.Spec, oldClass.Spec) {
+		governanceErrs, err := v.validateGovernance(ctx, vmClass)
+		if err != nil {
+			return webhook.Errored(http.StatusInternalServerError, err)
+		}
+		fieldErrs = append(fieldErrs, governanceErrs...)
+	}
 	validationErrs := make([]string, 0, len(fieldErrs))
 	for _, fieldErr := range fieldErrs {
 		validationErrs = append(validationErrs, fieldErr.Error())

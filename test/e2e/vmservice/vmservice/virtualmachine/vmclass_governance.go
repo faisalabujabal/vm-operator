@@ -117,7 +117,25 @@ func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchema
 		class.Spec.Governs = nil
 		class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("4"))
 		Expect(client.Create(ctx, ceiling)).To(Succeed())
+		By("rejecting a second governor and a selectable class outside the ceiling")
+		duplicate := ceiling.DeepCopy()
+		duplicate.Name, duplicate.ResourceVersion, duplicate.UID = "duplicate", "", ""
+		Expect(client.Create(ctx, duplicate)).To(MatchError(ContainSubstring("overlaps governing class")))
+		invalid := class.DeepCopy()
+		invalid.Name = "outside-ceiling"
+		invalid.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("16"))
+		Expect(client.Create(ctx, invalid)).To(MatchError(ContainSubstring("spec.resources.size.cpu")))
+		missingPolicy := class.DeepCopy()
+		missingPolicy.Name = "missing-policy"
+		missingPolicy.Spec.Governs = &vmopv1.VirtualMachineClassGovernance{Zones: &[]string{}}
+		Expect(client.Create(ctx, missingPolicy)).To(MatchError(ContainSubstring("spec.governs.existingVMs")))
 		Expect(client.Create(ctx, class)).To(Succeed())
+		Eventually(func(g Gomega) {
+			invalid = &vmopv1.VirtualMachineClass{}
+			g.Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(class), invalid)).To(Succeed())
+			invalid.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("16"))
+			g.Expect(client.Update(ctx, invalid)).To(MatchError(ContainSubstring("spec.resources.size.cpu")))
+		}).Should(Succeed())
 		key := ctrlclient.ObjectKeyFromObject(class)
 		Eventually(func(g Gomega) {
 			g.Expect(client.Get(ctx, key, class)).To(Succeed())
@@ -141,6 +159,12 @@ func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchema
 			g.Expect(condition.Reason).To(Equal(vmopv1.VirtualMachineClassGovernanceViolationReason))
 			g.Expect(class.Spec.Resources.Size.CPU.Default.String()).To(Equal("4"))
 		}, 2*time.Minute, time.Second).Should(Succeed())
+		By("permitting metadata housekeeping on the now noncompliant class")
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, key, class)).To(Succeed())
+			class.Labels = map[string]string{"governance-test": "metadata-update"}
+			g.Expect(client.Update(ctx, class)).To(Succeed())
+		}).Should(Succeed())
 		Expect(client.Delete(ctx, ceiling)).To(Succeed())
 		Eventually(func(g Gomega) {
 			g.Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(zone), zone)).To(Succeed())

@@ -17,6 +17,7 @@ import (
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	"github.com/vmware-tanzu/vm-operator/test/builder"
@@ -364,3 +365,66 @@ func intgTestsValidateDelete() {
 		})
 	})
 }
+
+var _ = Describe("Governance admission storage", Label(testlabels.API, testlabels.Validation, testlabels.Webhook, testlabels.EnvTest), func() {
+	var ctx *builder.IntegrationTestContext
+	BeforeEach(func() {
+		ctx = suite.NewIntegrationTestContext()
+		pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+	})
+	AfterEach(func() {
+		pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+		ctx.AfterEach()
+	})
+	It("rejects sequential conflicting governors without waiting for informer observation", func() {
+		ceiling := governanceTestClass("ceiling", ctx.Namespace)
+		Expect(ctx.Client.Create(ctx, ceiling)).To(Succeed())
+		candidate := governanceTestClass("candidate", ctx.Namespace)
+		Expect(ctx.Client.Create(ctx, candidate)).To(MatchError(ContainSubstring("overlaps governing class")))
+		candidate.Spec.Governs.Zones = &[]string{}
+		Expect(ctx.Client.Create(ctx, candidate)).To(Succeed())
+		candidate.Spec.Governs.Zones = nil
+		Expect(ctx.Client.Update(ctx, candidate)).To(MatchError(ContainSubstring("overlaps governing class")))
+	})
+	It("fails closed when gate-off writes left conflicting governors", func() {
+		pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+		Expect(ctx.Client.Create(ctx, governanceTestClass("left", ctx.Namespace))).To(Succeed())
+		Expect(ctx.Client.Create(ctx, governanceTestClass("right", ctx.Namespace))).To(Succeed())
+		pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+		candidate := governanceTestClass("selectable", ctx.Namespace)
+		candidate.Spec.Governs = nil
+		Expect(ctx.Client.Create(ctx, candidate)).To(MatchError(ContainSubstring("ambiguous governance")))
+	})
+
+	It("validates writes but permits narrowing and metadata housekeeping", func() {
+		ceiling := governanceTestClass("ceiling", ctx.Namespace)
+		Expect(ctx.Client.Create(ctx, ceiling)).To(Succeed())
+		candidate := governanceTestClass("selectable", ctx.Namespace)
+		candidate.Spec.Governs = nil
+		candidate.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("16"))
+		Expect(ctx.Client.Create(ctx, candidate)).To(MatchError(ContainSubstring("spec.resources.size.cpu")))
+		candidate.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("4"))
+		Expect(ctx.Client.Create(ctx, candidate)).To(Succeed())
+		candidate.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("16"))
+		Expect(ctx.Client.Update(ctx, candidate)).To(MatchError(ContainSubstring("spec.resources.size.cpu")))
+		ceiling.Spec.Resources.Size.CPU.Max = ptr.To(resource.MustParse("2"))
+		Expect(ctx.Client.Update(ctx, ceiling)).To(Succeed())
+		Expect(ctx.Client.Get(ctx, ctrlclient.ObjectKeyFromObject(candidate), candidate)).To(Succeed())
+		candidate.Labels = map[string]string{"housekeeping": "allowed"}
+		Expect(ctx.Client.Update(ctx, candidate)).To(Succeed())
+		candidate.Spec.Description = "spec change"
+		Expect(ctx.Client.Update(ctx, candidate)).To(MatchError(ContainSubstring("spec.resources.size.cpu")))
+	})
+	It("requires existingVMs on create and update only while enabled", func() {
+		candidate := governanceTestClass("candidate", ctx.Namespace)
+		candidate.Spec.Governs.ExistingVMs = ""
+		Expect(ctx.Client.Create(ctx, candidate)).To(MatchError(ContainSubstring("spec.governs.existingVMs")))
+		pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+		Expect(ctx.Client.Create(ctx, candidate)).To(Succeed())
+		pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+		candidate.Spec.Description = "spec change"
+		Expect(ctx.Client.Update(ctx, candidate)).To(MatchError(ContainSubstring("spec.governs.existingVMs")))
+		pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+		Expect(ctx.Client.Update(ctx, candidate)).To(Succeed())
+	})
+})

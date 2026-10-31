@@ -199,8 +199,8 @@ The class APIs, their generation and the namespace-copy integration are provider
 
 ### Story — Device memory reservation (vmop-4332)
 
-- [ ] T405 [US8] [vmop-4332] VM validating webhook: memory fully reserved when the effective configuration has a vGPU or DirectPath I/O device (create, and spec changes while attached; not metadata, status or vm-operator writes) — `webhooks/virtualmachine/validation`
-- [ ] T406 [US8] [vmop-4332] E2E: a device VM without full reservation is rejected; a VM of a fixed v1 class is unaffected
+- [x] T405 [US8] [vmop-4332] VM validating webhook: memory fully reserved when the effective configuration has a vGPU or DirectPath I/O device (create, and spec changes while attached; not metadata, status or vm-operator writes) — `webhooks/virtualmachine/validation`
+- [x] T406 [US8] [vmop-4332] E2E: a device VM without full reservation is rejected; a VM of a fixed v1 class is unaffected
 
 ### Story — Zone selection rule (vmop-4333)
 
@@ -299,3 +299,5 @@ T205a is implemented as experimental live-controller E2E in an isolated Kubernet
 - [x] T301a [US2/US12] [vmop-4325] Require `governs.existingVMs` on top-level classes behind the live capability, preserving metadata-only and deletion housekeeping after drift
 - [x] T306a [US2/US12] [vmop-4325] Test typed class governance create/update, prospective zone conflicts, pre-existing ambiguity, namespace/deletion isolation, live gate changes and API-reader failures; extend experimental narrowing E2E with duplicate-governor, out-of-ceiling and missing-policy rejection
 - [ ] T306b [US2] [vmop-4325] Execute the class governance admission E2E on a candidate Supervisor; the scenario is written and compiled but not live-validated
+
+T405/T406: device-memory admission checks inline, class/snapshot and raw presets plus observed attached devices; metadata/status-only and operator writes are exempt. Experimental dry-run Supervisor E2E covers denial, both reservation mechanisms and a fixed legacy device class. Live execution remains pending.

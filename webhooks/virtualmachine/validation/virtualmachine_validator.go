@@ -209,6 +209,10 @@ func (v validator) ValidateCreate(ctx *pkgctx.WebhookRequestContext) admission.R
 		return webhook.Errored(http.StatusBadRequest, err)
 	}
 
+	// Request-local configuration must not replace the shared webhook context:
+	// doing so freezes capability values for subsequent requests.
+	webhookContext := *ctx.WebhookContext
+	ctx.WebhookContext = &webhookContext
 	ctx.Context = vmopv1util.GetContextWithWorkloadDomainIsolation(ctx.Context, vm)
 	if !pkgcfg.FromContext(ctx).Features.WorkloadDomainIsolation {
 		ctx.Logger.Info("Disabled WorkloadDomainIsolation capability for this VM")
@@ -241,6 +245,7 @@ func (v validator) ValidateCreate(ctx *pkgctx.WebhookRequestContext) admission.R
 
 	fieldErrs = append(fieldErrs, v.validateAdvanced(ctx, vm)...)
 	fieldErrs = append(fieldErrs, v.validateComputeConfig(ctx, vm)...)
+	fieldErrs = append(fieldErrs, v.validateDeviceMemoryReservation(ctx, vm, nil)...)
 	fieldErrs = append(fieldErrs, v.validatePowerStateOnCreate(ctx, vm)...)
 	fieldErrs = append(fieldErrs, v.validateNextRestartTimeOnCreate(ctx, vm)...)
 	fieldErrs = append(fieldErrs, v.validateAnnotation(ctx, vm, nil)...)
@@ -318,6 +323,10 @@ func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.R
 		return webhook.Errored(http.StatusBadRequest, err)
 	}
 
+	// Request-local configuration must not replace the shared webhook context:
+	// doing so freezes capability values for subsequent requests.
+	webhookContext := *ctx.WebhookContext
+	ctx.WebhookContext = &webhookContext
 	ctx.Context = vmopv1util.GetContextWithWorkloadDomainIsolation(ctx.Context, vm)
 	if !pkgcfg.FromContext(ctx).Features.WorkloadDomainIsolation {
 		ctx.Logger.Info("Disabled WorkloadDomainIsolation capability for this VM")
@@ -360,6 +369,7 @@ func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.R
 
 	fieldErrs = append(fieldErrs, v.validateAdvanced(ctx, vm)...)
 	fieldErrs = append(fieldErrs, v.validateComputeConfig(ctx, vm)...)
+	fieldErrs = append(fieldErrs, v.validateDeviceMemoryReservation(ctx, vm, oldVM)...)
 	fieldErrs = append(fieldErrs, v.validateNextRestartTimeOnUpdate(ctx, vm, oldVM)...)
 	fieldErrs = append(fieldErrs, v.validateAnnotation(ctx, vm, oldVM)...)
 	fieldErrs = append(fieldErrs, v.validateMinHardwareVersion(ctx, vm, oldVM)...)

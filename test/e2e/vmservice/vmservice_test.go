@@ -127,6 +127,12 @@ var _ = Describe("Testing VM Services", Label("devops"), Label("viadmin"), Label
 			})
 		})
 
+		Context("VM-DEVICE-MEMORY", func() {
+			virtualmachine.DeviceMemorySpec(context.TODO(), func() virtualmachine.VMSpecInput {
+				return virtualmachine.VMSpecInput{ClusterProxy: svClusterProxy, Config: config, WCPClient: wcpClient, WCPNamespaceName: wcpNamespaceName, LinuxVMName: linuxVMName}
+			})
+		})
+
 		Context("VM-CLASS-GOVERNANCE", func() {
 			virtualmachine.VMClassGovernanceSpec(context.TODO(), func() virtualmachine.VMClassSchemaUpgradeInput {
 				return virtualmachine.VMClassSchemaUpgradeInput{

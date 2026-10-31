@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -24,9 +25,23 @@ import (
 
 // ValidateClassFieldUpdates rejects edits to supported fields supplied by the
 // selected class. It compares old and new values, allowing retained drift after
-// a class edit. Class transitions are validated separately by admission.
+// a class edit. Transitions require a resolvable destination; admission separately
+// validates whether the selected class or snapshot may change.
 func ValidateClassFieldUpdates(ctx context.Context, c ctrlclient.Client, vm, oldVM *vmopv1.VirtualMachine) (field.ErrorList, error) {
-	if !pkgcfg.FromContext(ctx).Features.VMServiceClasslessVM || vm.Spec.ClassName == "" || vm.Spec.ClassName != oldVM.Spec.ClassName {
+	features := pkgcfg.FromContext(ctx).Features
+	if !features.VMServiceClasslessVM || vm.Spec.ClassName == "" {
+		return nil, nil
+	}
+	// Update transitions cannot use creation's class-not-yet-copied exception:
+	// mutation cannot canonicalize supplied fields without a destination class.
+	if vm.Spec.ClassName != oldVM.Spec.ClassName || (features.ImmutableClasses && features.VMResizeCPUMemory && !apiequality.Semantic.DeepEqual(vm.Spec.Class, oldVM.Spec.Class)) {
+		destination := &vmopv1.VirtualMachineClass{}
+		if err := c.Get(ctx, ctrlclient.ObjectKey{Namespace: vm.Namespace, Name: vm.Spec.ClassName}, destination); err != nil {
+			if apierrors.IsNotFound(err) {
+				return field.ErrorList{field.Invalid(field.NewPath("spec", "className"), vm.Spec.ClassName, "destination class must exist before changing the selected class")}, nil
+			}
+			return nil, fmt.Errorf("resolve destination class: %w", err)
+		}
 		return nil, nil
 	}
 	oldFields, newFields := supportedClassFields(oldVM), supportedClassFields(vm)

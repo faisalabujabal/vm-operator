@@ -406,7 +406,9 @@ func (v validator) validateClassFieldUpdates(ctx *pkgctx.WebhookRequestContext, 
 		}
 		// Mutation applies the newly selected snapshot before validation. Unlike a
 		// class-name transition, this path was not checked by validateClassOnUpdate.
-		return v.validateClassInstance(ctx, vm), nil
+		if errs := v.validateClassInstance(ctx, vm); len(errs) != 0 {
+			return errs, nil
+		}
 	}
 	return vmclass.ValidateClassFieldUpdates(ctx, v.client, vm, oldVM)
 }

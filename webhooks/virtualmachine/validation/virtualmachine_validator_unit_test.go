@@ -5693,6 +5693,7 @@ func unitTestsValidateUpdate() {
 			ctx.vm.Spec.Class = &common.LocalObjectRef{Name: "new-instance", Kind: "VirtualMachineClassInstance", APIVersion: vmopv1.GroupVersion.String()}
 			if changeName {
 				ctx.vm.Spec.ClassName = "new-class"
+				Expect(ctx.Client.Create(ctx, &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: ctx.vm.Spec.ClassName, Namespace: ctx.vm.Namespace}})).To(Succeed())
 			}
 			instance := &vmopv1.VirtualMachineClassInstance{ObjectMeta: metav1.ObjectMeta{Name: "new-instance", Namespace: ctx.vm.Namespace, Labels: map[string]string{vmopv1.VMClassInstanceActiveLabelKey: ""}, OwnerReferences: []metav1.OwnerReference{{Kind: "VirtualMachineClass", Name: ctx.vm.Spec.ClassName}}}}
 			instance.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
@@ -5725,6 +5726,38 @@ func unitTestsValidateUpdate() {
 			response = validate()
 			Expect(response.Allowed).To(BeTrue(), fmt.Sprintf("%+v", response.Result))
 		}, Entry("class-name change", true), Entry("same-class snapshot change", false))
+		DescribeTable("rejects unresolved destinations after mutation", func(immutable bool) {
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.ImmutableClasses = immutable })
+			ctx.vm.Spec.Volumes = nil
+			ctx.oldVM.Spec.Volumes = nil
+			ctx.vm.Spec.ClassName = "missing-destination"
+			ctx.vm.Spec.Class = nil
+			ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+			bypassUpgradeCheck(&ctx.Context, ctx.vm, ctx.oldVM)
+			var err error
+			ctx.Obj, err = builder.ToUnstructured(ctx.vm)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.OldObj, err = builder.ToUnstructured(ctx.oldVM)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.RawObj, err = json.Marshal(ctx.vm)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.Op = admissionv1.Update
+			response := mutation.NewMutatorWithProvider(ctx.Client, providerfake.NewVMProvider()).Mutate(&ctx.WebhookRequestContext)
+			Expect(response.Allowed).To(BeTrue(), fmt.Sprintf("%+v", response.Result))
+			if len(response.Patches) > 0 {
+				patchBytes, err := json.Marshal(response.Patches)
+				Expect(err).NotTo(HaveOccurred())
+				patch, err := jsonpatch.DecodePatch(patchBytes)
+				Expect(err).NotTo(HaveOccurred())
+				mutated, err := patch.Apply(ctx.RawObj)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(json.Unmarshal(mutated, ctx.vm)).To(Succeed())
+			}
+			Expect(ctx.vm.Spec.CPUAdvanced.HotAddEnabled).To(HaveValue(BeTrue()), "missing destination cannot canonicalize this edit")
+			response = validate()
+			Expect(response.Allowed).To(BeFalse())
+			Expect(string(response.Result.Reason)).To(ContainSubstring("destination class must exist"))
+		}, Entry("mutable classes", false), Entry("immutable classes without an instance", true))
 		It("does not exempt reference edits while immutable classes are disabled", func() {
 			ctx.vm.Spec.Class = &common.LocalObjectRef{Name: "untrusted-reference"}
 			ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)

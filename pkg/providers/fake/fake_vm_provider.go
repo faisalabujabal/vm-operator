@@ -69,8 +69,9 @@ type funcs struct {
 	GetSnapshotSizeFn          func(ctx context.Context, vmSnapshotName string, vm *vmopv1.VirtualMachine) (int64, error)
 	SyncVMSnapshotTreeStatusFn func(ctx context.Context, vm *vmopv1.VirtualMachine) error
 
-	GetVirtualMachineConfigTargetFn func(ctx context.Context, clusterMoID string) (*vimtypes.ConfigTarget, []vimtypes.VirtualMachineConfigOptionDescriptor, error)
-	QueryConfigOptionExFn           func(ctx context.Context, clusterMoID, hardwareVersion string) (*vimtypes.VirtualMachineConfigOption, error)
+	GetEnvironmentBrowserInventoryFn func(context.Context, string) (providers.EnvironmentBrowserInventory, error)
+	GetVirtualMachineConfigTargetFn  func(ctx context.Context, clusterMoID string) (*vimtypes.ConfigTarget, []vimtypes.VirtualMachineConfigOptionDescriptor, error)
+	QueryConfigOptionExFn            func(ctx context.Context, clusterMoID, hardwareVersion string) (*vimtypes.VirtualMachineConfigOption, error)
 }
 
 type VMProvider struct {
@@ -559,4 +560,14 @@ func (s *VMProvider) GetVirtualMachineClassResources(ctx context.Context, spec v
 		return s.GetVirtualMachineClassResourcesFn(ctx, spec)
 	}
 	return nil, fmt.Errorf("class resource defaults are not configured for the fake provider")
+}
+
+// GetEnvironmentBrowserInventory returns the fake cluster inventory.
+func (s *VMProvider) GetEnvironmentBrowserInventory(ctx context.Context, clusterMoID string) (providers.EnvironmentBrowserInventory, error) {
+	s.Lock()
+	defer s.Unlock()
+	if s.GetEnvironmentBrowserInventoryFn != nil {
+		return s.GetEnvironmentBrowserInventoryFn(ctx, clusterMoID)
+	}
+	return providers.EnvironmentBrowserInventory{}, nil
 }

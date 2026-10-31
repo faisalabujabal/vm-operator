@@ -5,14 +5,18 @@
 package validation_test
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	pkgconst "github.com/vmware-tanzu/vm-operator/pkg/constants"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
@@ -666,3 +670,32 @@ func intgTestsValidateIPAMModesImmutability() {
 		})
 	})
 }
+
+var _ = Describe("Class field protection admission", Label(testlabels.Validation, testlabels.EnvTest, testlabels.Webhook), func() {
+	It("rejects supplied-field edits while accepting metadata and unowned edits", func() {
+		previous := pkgcfg.FromContext(suite).Features
+		pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+		DeferCleanup(func() { pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features = previous }) })
+		ctx := newIntgValidatingWebhookContext()
+		DeferCleanup(ctx.AfterEach)
+		ctx.vm.Spec.ClassName = "protected-class"
+		ctx.vm.Spec.PowerState = vmopv1.VirtualMachinePowerStateOff
+		class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: ctx.vm.Spec.ClassName, Namespace: ctx.Namespace}}
+		class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
+		Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+		ctx.vm.Spec.CPUAdvanced = &vmopv1.VirtualMachineCPUAdvancedSpec{HotAddEnabled: ptr.To(false)}
+		Expect(ctx.Client.Create(ctx, ctx.vm)).To(Succeed())
+		ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+		err := ctx.Client.Update(ctx, ctx.vm)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.cpuAdvanced.hotAddEnabled"))
+		Expect(err.Error()).To(ContainSubstring("remove spec.className"))
+		ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(false)
+		ctx.vm.Labels = map[string]string{"tenant-label": "value"}
+		ctx.vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootDelay: &metav1.Duration{Duration: time.Second}}
+		Expect(ctx.Client.Update(ctx, ctx.vm)).To(Succeed())
+		Expect(ctx.Client.Delete(ctx, class)).To(Succeed())
+		ctx.vm.Labels["tenant-label"] = "next"
+		Expect(ctx.Client.Update(ctx, ctx.vm)).To(Succeed())
+	})
+})

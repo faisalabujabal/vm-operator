@@ -656,3 +656,150 @@ var _ = Describe("Same-class resize defaults", Label(testlabels.Controller), fun
 		})
 	}
 })
+
+var _ = Describe("Class-supplied field protection", Label(testlabels.Validation), func() {
+	DescribeTable("compares only edited supplied fields", func(scenario string, wantPath string, wantError bool) {
+		ctx := pkgcfg.NewContextWithDefaultConfig()
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+		scheme := runtime.NewScheme()
+		Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+		class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "class", Namespace: "ns"}}
+		class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("4"))
+		class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
+		oldVM := &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Name: "vm", Namespace: "ns"}}
+		oldVM.Spec.ClassName = class.Name
+		oldVM.Spec.Resources = &vmopv1.VirtualMachineResourcesSpec{Size: &vmopv1.VirtualMachineResourceQuantity{CPU: resource.NewQuantity(2, resource.DecimalSI)}}
+		oldVM.Spec.CPUAdvanced = &vmopv1.VirtualMachineCPUAdvancedSpec{HotAddEnabled: ptr.To(false)}
+		vm := oldVM.DeepCopy()
+		objects := []ctrlclient.Object{class}
+		switch scenario {
+		case "resource drift edit":
+			vm.Spec.Resources.Size.CPU = resource.NewQuantity(3, resource.DecimalSI)
+		case "false default removal":
+			vm.Spec.CPUAdvanced = nil
+		case "zero allocation":
+			class.Spec.Resources.Requests.CPU = vmopv1.FixedClassResource(resource.MustParse("0"))
+			vm.Spec.Resources.Requests = &vmopv1.VirtualMachineResourceQuantity{CPU: resource.NewQuantity(1, resource.DecimalSI)}
+		case "raw allocation":
+			class.Spec.ConfigSpec = []byte(`{"memoryAllocation":{"limit":4096}}`)
+			vm.Spec.Resources.Limits = &vmopv1.VirtualMachineResourceQuantity{Memory: resource.NewQuantity(2048, resource.BinarySI)}
+		case "raw null allocation":
+			class.Spec.ConfigSpec = []byte(`{"memoryAllocation":{"reservation":null}}`)
+			vm.Spec.Resources.Requests = &vmopv1.VirtualMachineResourceQuantity{Memory: resource.NewQuantity(2048, resource.BinarySI)}
+		case "raw compute":
+			class.Spec.CPUAdvanced = nil
+			class.Spec.ConfigSpec = []byte(`{"cpuHotAddEnabled":false}`)
+			vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+		case "zero boot delay":
+			class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: vmopv1.FixedClassLong(0)}
+			vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootDelay: &metav1.Duration{Duration: time.Second}}
+		case "advanced scalar":
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PreferHTEnabled: vmopv1.FixedClassBool(false)}
+			vm.Spec.Advanced = &vmopv1.VirtualMachineAdvancedSpec{PreferHTEnabled: ptr.To(true)}
+		case "empty collection":
+			values := []common.KeyValuePair{}
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Default: &values}}
+			vm.Spec.Advanced = &vmopv1.VirtualMachineAdvancedSpec{ExtraConfig: []common.KeyValuePair{{Key: "custom", Value: "value"}}}
+		case "retry delay without retry":
+			class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootRetryDelay: vmopv1.FixedClassLong(1000)}
+			vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootRetry: vmopv1.VirtualMachineBootOptionsBootRetryEnabled, BootRetryDelay: &metav1.Duration{Duration: 2 * time.Second}}
+		case "collection reorder":
+			values := []common.KeyValuePair{{Key: "a", Value: "1"}, {Key: "b", Value: "2"}}
+			class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Default: &values}}
+			oldVM.Spec.Advanced = &vmopv1.VirtualMachineAdvancedSpec{ExtraConfig: values}
+			vm.Spec.Advanced = &vmopv1.VirtualMachineAdvancedSpec{ExtraConfig: []common.KeyValuePair{values[1], values[0]}}
+		case "unowned field":
+			vm.Spec.CPUAdvanced.HotRemoveEnabled = ptr.To(true)
+		case "constraint only":
+			class.Spec.CPUAdvanced.HotAddEnabled = &vmopv1.BoolPolicy{}
+			vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+		case "drift unrelated edit":
+			vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{BootDelay: &metav1.Duration{Duration: time.Second}}
+		case "equivalent quantities":
+			class.Spec.Resources.Size.Memory = vmopv1.FixedClassResource(resource.MustParse("1Gi"))
+			oldVM.Spec.Resources.Size.Memory = ptr.To(resource.MustParse("1Gi"))
+			vm.Spec.Resources.Size.Memory = ptr.To(resource.MustParse("1024Mi"))
+		case "missing class housekeeping":
+			objects = nil
+			vm.Labels = map[string]string{"label": "value"}
+		case "missing class edit":
+			objects = nil
+			vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+		case "malformed class housekeeping":
+			class.Spec.ConfigSpec = []byte("invalid")
+			vm.Labels = map[string]string{"label": "value"}
+		case "malformed class edit":
+			class.Spec.ConfigSpec = []byte("invalid")
+			vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+		case "snapshot ownership", "live ownership after refresh", "missing live class", "missing snapshot":
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.ImmutableClasses = true })
+			instance := &vmopv1.VirtualMachineClassInstance{ObjectMeta: metav1.ObjectMeta{Name: "snapshot", Namespace: "ns"}}
+			instance.Spec.VirtualMachineClassSpec = *class.Spec.DeepCopy()
+			objects = append(objects, instance)
+			class.Spec.CPUAdvanced = nil
+			oldVM.Spec.Class = &common.LocalObjectRef{Name: instance.Name}
+			vm.Spec.Class = oldVM.Spec.Class.DeepCopy()
+			vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+			if scenario == "live ownership after refresh" {
+				instance.Spec.CPUAdvanced = nil
+				class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
+			}
+			if scenario == "missing live class" {
+				objects = []ctrlclient.Object{instance}
+			}
+			if scenario == "missing snapshot" {
+				objects = []ctrlclient.Object{class}
+			}
+		case "class removal":
+			vm.Spec.ClassName = ""
+			vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+		case "disabled":
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+			vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+		}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+		before, oldBefore, classBefore := vm.DeepCopy(), oldVM.DeepCopy(), class.DeepCopy()
+		errs, err := vmclass.ValidateClassFieldUpdates(ctx, c, vm, oldVM)
+		if wantError {
+			Expect(err).To(HaveOccurred())
+		} else {
+			Expect(err).NotTo(HaveOccurred())
+		}
+		if wantPath == "" {
+			Expect(errs).To(BeEmpty())
+		} else {
+			Expect(errs).To(HaveLen(1))
+			Expect(errs[0].Field).To(Equal(wantPath))
+			Expect(errs[0].Detail).To(ContainSubstring("remove spec.className"))
+		}
+		Expect(vm).To(Equal(before))
+		Expect(oldVM).To(Equal(oldBefore))
+		Expect(class).To(Equal(classBefore))
+	},
+		Entry("rejects a resource edit despite retained drift", "resource drift edit", "spec.resources.size.cpu", false),
+		Entry("protects explicit false", "false default removal", "spec.cpuAdvanced.hotAddEnabled", false),
+		Entry("protects explicit zero allocation", "zero allocation", "spec.resources.requests.cpu", false),
+		Entry("protects raw resource allocation", "raw allocation", "spec.resources.limits.memory", false),
+		Entry("does not own null raw allocations", "raw null allocation", "", false),
+		Entry("protects raw compute defaults", "raw compute", "spec.cpuAdvanced.hotAddEnabled", false),
+		Entry("protects zero boot delay", "zero boot delay", "spec.bootOptions.bootDelay", false),
+		Entry("uses the VM advanced JSON field path", "advanced scalar", "spec.advanced.preferHtEnabled", false),
+		Entry("protects explicit empty collections", "empty collection", "spec.advanced.extraConfig", false),
+		Entry("does not own synthesized reset values", "unowned field", "", false),
+		Entry("does not own constraints without defaults", "constraint only", "", false),
+		Entry("retains drift on unrelated edits", "drift unrelated edit", "", false),
+		Entry("compares quantities semantically", "equivalent quantities", "", false),
+		Entry("allows housekeeping without a class", "missing class housekeeping", "", false),
+		Entry("fails closed without a class for edits", "missing class edit", "", true),
+		Entry("allows housekeeping with malformed class", "malformed class housekeeping", "", false),
+		Entry("fails closed on malformed ownership", "malformed class edit", "", true),
+		Entry("uses pinned snapshot ownership", "snapshot ownership", "spec.cpuAdvanced.hotAddEnabled", false),
+		Entry("protects live fields absent from old snapshot before completion", "live ownership after refresh", "spec.cpuAdvanced.hotAddEnabled", false),
+		Entry("fails closed with missing live ownership", "missing live class", "", true),
+		Entry("fails closed with missing snapshot ownership", "missing snapshot", "", true),
+		Entry("protects delay independent of retry selection", "retry delay without retry", "spec.bootOptions.bootRetryDelay", false),
+		Entry("permits map collection reordering", "collection reorder", "", false),
+		Entry("allows removing class ownership", "class removal", "", false),
+		Entry("reads live capability", "disabled", "", false),
+	)
+})

@@ -195,6 +195,8 @@ The class APIs, their generation and the namespace-copy integration are provider
 ### Story — VM governance validation (vmop-4331)
 
 - [ ] T403 [US2/US3/US4] [vmop-4331] VM validating webhook: governance through T200; reject inline edits of class-supplied fields while `className` is set; reject a classless VM in an ungoverned zone; reject an image value the governing class doesn't allow; messages follow the visibility rule — `webhooks/virtualmachine/validation`
+- [x] T403a [US4/US12] [vmop-4331] Protect supported class-supplied resource/compute/boot/advanced VM fields on user updates; preserve drift, operator writes and validated class/snapshot transitions — `pkg/vmclass/`, `webhooks/virtualmachine/validation/`
+- [x] T404a [US4] [vmop-4331] Experimental E2E rejects class-owned CPU/hot-add edits, permits unrelated updates and preserves operator same-class refresh — `test/e2e/vmservice/vmservice/virtualmachine/vm_compute_config.go`. Written and compile checked; live Supervisor execution remains pending
 - [ ] T404 [US2/US3/US4] [vmop-4331] E2E: a classless VM beyond the ceiling, an ExtraConfig key the class denies, an inline edit and a classless VM in an ungoverned zone are rejected; removing `className` keeps the values
 
 ### Story — Device memory reservation (vmop-4332)

@@ -6,6 +6,7 @@ package validation_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,8 +15,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/google/uuid"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
+	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -41,6 +44,7 @@ import (
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	pkgconst "github.com/vmware-tanzu/vm-operator/pkg/constants"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
+	providerfake "github.com/vmware-tanzu/vm-operator/pkg/providers/fake"
 	"github.com/vmware-tanzu/vm-operator/pkg/providers/vsphere/config"
 	pkgutil "github.com/vmware-tanzu/vm-operator/pkg/util"
 	kubeutil "github.com/vmware-tanzu/vm-operator/pkg/util/kube"
@@ -49,6 +53,7 @@ import (
 	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 	"github.com/vmware-tanzu/vm-operator/pkg/vmconfig/anno2extraconfig"
 	"github.com/vmware-tanzu/vm-operator/test/builder"
+	"github.com/vmware-tanzu/vm-operator/webhooks/virtualmachine/mutation"
 )
 
 const (
@@ -281,7 +286,11 @@ func newUnitTestContextForValidatingWebhook(isUpdate bool) *unitValidatingWebhoo
 
 	az := builder.DummyAvailabilityZone()
 	zone := builder.DummyZone(dummyNamespaceName)
-	initObjects := []client.Object{az, zone}
+	// Compute/advanced validation tests exercise fields not owned by a class.
+	// Keep that ownership source present so missing-class admission failures
+	// remain explicit test cases instead of masking the validation under test.
+	class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: vm.Spec.ClassName, Namespace: vm.Namespace}}
+	initObjects := []client.Object{az, zone, class}
 
 	return &unitValidatingWebhookContext{
 		UnitTestContextForValidatingWebhook: *suite.NewUnitTestContextForValidatingWebhook(obj, oldObj, initObjects...),
@@ -5608,6 +5617,173 @@ func unitTestsValidateUpdate() {
 
 	AfterEach(func() {
 		ctx = nil
+	})
+
+	Context("class-supplied field protection", func() {
+		var class *vmopv1.VirtualMachineClass
+		BeforeEach(func() {
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true; c.Features.VMResizeCPUMemory = true })
+			ctx.IsPrivilegedAccount = false
+			ctx.UserInfo.Username = "tenant-user"
+			class = &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: ctx.vm.Spec.ClassName, Namespace: ctx.vm.Namespace}}
+			Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(class), class)).To(Succeed())
+			class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
+			Expect(ctx.Client.Update(ctx, class)).To(Succeed())
+			ctx.oldVM.Spec.CPUAdvanced = &vmopv1.VirtualMachineCPUAdvancedSpec{HotAddEnabled: ptr.To(false)}
+			ctx.vm = ctx.oldVM.DeepCopy()
+		})
+		validate := func() admission.Response {
+			bypassUpgradeCheck(&ctx.Context, ctx.vm, ctx.oldVM)
+			var err error
+			ctx.Obj, err = builder.ToUnstructured(ctx.vm)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.OldObj, err = builder.ToUnstructured(ctx.oldVM)
+			Expect(err).NotTo(HaveOccurred())
+			return ctx.ValidateUpdate(&ctx.WebhookRequestContext)
+		}
+		DescribeTable("restricts supported field edits by identity", func(identity string, allowed bool) {
+			ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+			switch identity {
+			case "operator":
+				ctx.UserInfo.Username = "system:serviceaccount:" + ctx.Namespace + ":" + ctx.ServiceAccountName
+			case "masters":
+				ctx.UserInfo.Groups = []string{"system:masters"}
+				ctx.IsPrivilegedAccount = true
+			case "privileged":
+				ctx.IsPrivilegedAccount = true
+			}
+			response := validate()
+			Expect(response.Allowed).To(Equal(allowed), fmt.Sprintf("%+v", response.Result))
+			if !allowed {
+				Expect(string(response.Result.Reason)).To(ContainSubstring("spec.cpuAdvanced.hotAddEnabled"))
+				Expect(string(response.Result.Reason)).To(ContainSubstring("remove spec.className"))
+			}
+		}, Entry("rejects tenant edit", "tenant", false), Entry("does not exempt administrators", "masters", false), Entry("does not exempt generic privileged users", "privileged", false), Entry("allows authenticated operator refresh", "operator", true))
+		It("reads capability changes on the same webhook context", func() {
+			shared := ctx.Context
+			ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+			pkgcfg.SetContext(shared, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+			// This legacy-only edit is rejected by the existing compute gate, but must
+			// not freeze the shared context used by subsequent requests.
+			_ = validate()
+			pkgcfg.SetContext(shared, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+			response := validate()
+			Expect(response.Allowed).To(BeFalse())
+			Expect(string(response.Result.Reason)).To(ContainSubstring("remove spec.className"))
+		})
+		It("retains the existing permitted privileged class-removal path", func() {
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMImportNewNet = true })
+			ctx.IsPrivilegedAccount = true
+			ctx.vm.Spec.ClassName = ""
+			response := validate()
+			Expect(response.Allowed).To(BeTrue(), fmt.Sprintf("%+v", response.Result))
+			Expect(ctx.vm.Spec.CPUAdvanced).To(Equal(ctx.oldVM.Spec.CPUAdvanced))
+		})
+		It("allows unrelated updates without resolving a deleted class", func() {
+			Expect(ctx.Client.Delete(ctx, class)).To(Succeed())
+			ctx.vm.Labels = map[string]string{"tenant-label": "value"}
+			response := validate()
+			Expect(response.Allowed).To(BeTrue(), fmt.Sprintf("%+v", response.Result))
+		})
+		DescribeTable("materializes permitted transitions before validation", func(changeName bool) {
+			ctx.vm.Spec.Volumes = nil
+			ctx.oldVM.Spec.Volumes = nil
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.ImmutableClasses = true })
+			ctx.oldVM.Spec.Class = &common.LocalObjectRef{Name: "old-instance", Kind: "VirtualMachineClassInstance", APIVersion: vmopv1.GroupVersion.String()}
+			ctx.vm.Spec.Class = &common.LocalObjectRef{Name: "new-instance", Kind: "VirtualMachineClassInstance", APIVersion: vmopv1.GroupVersion.String()}
+			if changeName {
+				ctx.vm.Spec.ClassName = "new-class"
+				Expect(ctx.Client.Create(ctx, &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: ctx.vm.Spec.ClassName, Namespace: ctx.vm.Namespace}})).To(Succeed())
+			}
+			instance := &vmopv1.VirtualMachineClassInstance{ObjectMeta: metav1.ObjectMeta{Name: "new-instance", Namespace: ctx.vm.Namespace, Labels: map[string]string{vmopv1.VMClassInstanceActiveLabelKey: ""}, OwnerReferences: []metav1.OwnerReference{{Kind: "VirtualMachineClass", Name: ctx.vm.Spec.ClassName}}}}
+			instance.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(false)}
+			Expect(ctx.Client.Create(ctx, instance)).To(Succeed())
+			ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+			bypassUpgradeCheck(&ctx.Context, ctx.vm, ctx.oldVM)
+			var err error
+			ctx.Obj, err = builder.ToUnstructured(ctx.vm)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.OldObj, err = builder.ToUnstructured(ctx.oldVM)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.RawObj, err = json.Marshal(ctx.vm)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.Op = admissionv1.Update
+			provider := providerfake.NewVMProvider()
+			provider.GetVirtualMachineClassResourcesFn = func(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
+				return &vmopv1.VirtualMachineResourcesSpec{Size: &vmopv1.VirtualMachineResourceQuantity{CPU: resource.NewQuantity(4, resource.DecimalSI), Memory: ptr.To(resource.MustParse("1Gi"))}}, nil
+			}
+			response := mutation.NewMutatorWithProvider(ctx.Client, provider).Mutate(&ctx.WebhookRequestContext)
+			Expect(response.Allowed).To(BeTrue(), fmt.Sprintf("%+v", response.Result))
+			patchBytes, err := json.Marshal(response.Patches)
+			Expect(err).NotTo(HaveOccurred())
+			patch, err := jsonpatch.DecodePatch(patchBytes)
+			Expect(err).NotTo(HaveOccurred())
+			mutated, err := patch.Apply(ctx.RawObj)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(json.Unmarshal(mutated, ctx.vm)).To(Succeed())
+			Expect(ctx.vm.Spec.CPUAdvanced.HotAddEnabled).To(HaveValue(BeFalse()))
+			Expect(ctx.vm.Spec.Resources.Size.CPU.Value()).To(Equal(int64(4)))
+			response = validate()
+			Expect(response.Allowed).To(BeTrue(), fmt.Sprintf("%+v", response.Result))
+		}, Entry("class-name change", true), Entry("same-class snapshot change", false))
+		DescribeTable("rejects unresolved destinations after mutation", func(immutable bool) {
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.ImmutableClasses = immutable })
+			ctx.vm.Spec.Volumes = nil
+			ctx.oldVM.Spec.Volumes = nil
+			ctx.vm.Spec.ClassName = "missing-destination"
+			ctx.vm.Spec.Class = nil
+			ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+			bypassUpgradeCheck(&ctx.Context, ctx.vm, ctx.oldVM)
+			var err error
+			ctx.Obj, err = builder.ToUnstructured(ctx.vm)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.OldObj, err = builder.ToUnstructured(ctx.oldVM)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.RawObj, err = json.Marshal(ctx.vm)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.Op = admissionv1.Update
+			response := mutation.NewMutatorWithProvider(ctx.Client, providerfake.NewVMProvider()).Mutate(&ctx.WebhookRequestContext)
+			Expect(response.Allowed).To(BeTrue(), fmt.Sprintf("%+v", response.Result))
+			if len(response.Patches) > 0 {
+				patchBytes, err := json.Marshal(response.Patches)
+				Expect(err).NotTo(HaveOccurred())
+				patch, err := jsonpatch.DecodePatch(patchBytes)
+				Expect(err).NotTo(HaveOccurred())
+				mutated, err := patch.Apply(ctx.RawObj)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(json.Unmarshal(mutated, ctx.vm)).To(Succeed())
+			}
+			Expect(ctx.vm.Spec.CPUAdvanced.HotAddEnabled).To(HaveValue(BeTrue()), "missing destination cannot canonicalize this edit")
+			response = validate()
+			Expect(response.Allowed).To(BeFalse())
+			Expect(string(response.Result.Reason)).To(ContainSubstring("destination class must exist"))
+		}, Entry("mutable classes", false), Entry("immutable classes without an instance", true))
+		It("does not exempt reference edits while immutable classes are disabled", func() {
+			ctx.vm.Spec.Class = &common.LocalObjectRef{Name: "untrusted-reference"}
+			ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+			response := validate()
+			Expect(response.Allowed).To(BeFalse())
+			Expect(string(response.Result.Reason)).To(ContainSubstring("remove spec.className"))
+		})
+		DescribeTable("validates same-class snapshot transitions", func(scenario string, allowed bool) {
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.ImmutableClasses = true })
+			ctx.oldVM.Spec.Class = &common.LocalObjectRef{Name: "old-instance", Kind: "VirtualMachineClassInstance", APIVersion: vmopv1.GroupVersion.String()}
+			ctx.vm.Spec.Class = &common.LocalObjectRef{Name: "new-instance", Kind: "VirtualMachineClassInstance", APIVersion: vmopv1.GroupVersion.String()}
+			ctx.vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+			instance := &vmopv1.VirtualMachineClassInstance{ObjectMeta: metav1.ObjectMeta{Name: "new-instance", Namespace: ctx.vm.Namespace, Labels: map[string]string{vmopv1.VMClassInstanceActiveLabelKey: ""}, OwnerReferences: []metav1.OwnerReference{{Kind: "VirtualMachineClass", Name: class.Name}}}}
+			instance.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{HotAddEnabled: vmopv1.FixedClassBool(true)}
+			switch scenario {
+			case "inactive":
+				instance.Labels = nil
+			case "foreign":
+				instance.OwnerReferences[0].Name = "foreign"
+			case "disabled":
+				pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMResizeCPUMemory = false })
+			}
+			Expect(ctx.Client.Create(ctx, instance)).To(Succeed())
+			response := validate()
+			Expect(response.Allowed).To(Equal(allowed), fmt.Sprintf("%+v", response.Result))
+		}, Entry("permits active same-class instance", "active", true), Entry("rejects inactive instance", "inactive", false), Entry("rejects foreign instance", "foreign", false), Entry("requires resize capability", "disabled", false))
 	})
 
 	msg := "field is immutable"

@@ -204,6 +204,10 @@ func (v validator) For() schema.GroupVersionKind {
 }
 
 func (v validator) ValidateCreate(ctx *pkgctx.WebhookRequestContext) admission.Response {
+	requestCtx := *ctx
+	webhookCtx := *ctx.WebhookContext
+	requestCtx.WebhookContext = &webhookCtx
+	ctx = &requestCtx
 	vm, err := v.vmFromUnstructured(ctx.Obj)
 	if err != nil {
 		return webhook.Errored(http.StatusBadRequest, err)
@@ -308,6 +312,10 @@ func (v validator) validateImageOnUpdate(ctx *pkgctx.WebhookRequestContext, vm, 
 //   - GuestID
 //   - CD-ROM (updating connection state is allowed regardless of power state)
 func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.Response {
+	requestCtx := *ctx
+	webhookCtx := *ctx.WebhookContext
+	requestCtx.WebhookContext = &webhookCtx
+	ctx = &requestCtx
 	vm, err := v.vmFromUnstructured(ctx.Obj)
 	if err != nil {
 		return webhook.Errored(http.StatusBadRequest, err)
@@ -371,6 +379,13 @@ func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.R
 	fieldErrs = append(fieldErrs, v.validateBootOptions(ctx, vm, oldVM)...)
 	fieldErrs = append(fieldErrs, v.validateSnapshot(ctx, vm, oldVM)...)
 	fieldErrs = append(fieldErrs, v.validateGroupName(ctx, vm)...)
+	if !builder.IsVMOperatorServiceAccount(ctx.WebhookContext, ctx.UserInfo) {
+		classErrs, err := v.validateClassFieldUpdates(ctx, vm, oldVM)
+		fieldErrs = append(fieldErrs, classErrs...)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
 
 	validationErrs := make([]string, 0, len(fieldErrs))
 	for _, fieldErr := range fieldErrs {
@@ -378,6 +393,24 @@ func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.R
 	}
 
 	return common.BuildValidationResponse(ctx, nil, validationErrs, errors.Join(errs...))
+}
+
+func (v validator) validateClassFieldUpdates(ctx *pkgctx.WebhookRequestContext, vm, oldVM *vmopv1.VirtualMachine) (field.ErrorList, error) {
+	features := pkgcfg.FromContext(ctx).Features
+	if !features.VMServiceClasslessVM {
+		return nil, nil
+	}
+	if features.ImmutableClasses && vm.Spec.ClassName != "" && vm.Spec.ClassName == oldVM.Spec.ClassName && !equality.Semantic.DeepEqual(vm.Spec.Class, oldVM.Spec.Class) {
+		if !features.VMResizeCPUMemory {
+			return field.ErrorList{field.Forbidden(field.NewPath("spec", "class"), "class snapshot changes require VM resize")}, nil
+		}
+		// Mutation applies the newly selected snapshot before validation. Unlike a
+		// class-name transition, this path was not checked by validateClassOnUpdate.
+		if errs := v.validateClassInstance(ctx, vm); len(errs) != 0 {
+			return errs, nil
+		}
+	}
+	return vmclass.ValidateClassFieldUpdates(ctx, v.client, vm, oldVM)
 }
 
 func (v validator) validateBootstrapProviderImmutable(

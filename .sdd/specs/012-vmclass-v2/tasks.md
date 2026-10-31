@@ -146,7 +146,7 @@ Blocked on a vSphere and govmomi release with the vmx-23 fields. Not a gate for 
 - [ ] T202 [US7] [vmop-4322] Class status: resolved per-zone limits and options for every governed field (ranges as `{min, max}`; enums, sets and devices as the available values with display fields), from the environment-browser objects within the governing class; per-VM only, only what governance permits; updated when the environment-browser objects change; the unreserved-DirectPath reason per T012
 - [ ] T202a [US7] [vmop-4322] E2E: resolved limits never exceed the governing class, and a device list shows only the devices the zone has
 - [x] T202b [US7] [vmop-4322] Add resolved field-domain status and CPU/memory resource resolution, conversion/schema coverage and discovery-watch/E2E tests (`api/v1alpha6/virtualmachineclass_resolved_types.go`, `pkg/vmclass/resolved_limits.go`, `controllers/virtualmachineclass`, `api/test`, `test/e2e/vmservice`)
-- [ ] T202c [US7] [vmop-4322] Resolve compute, boot and advanced policies, preserving unknown hardware evidence and exact set/matcher semantics (`pkg/vmclass/resolved_policies.go`, `test/e2e/vmservice`)
+- [x] T202c [US7] [vmop-4322] Resolve compute, boot and advanced policies, preserving unknown hardware evidence and exact set/matcher semantics (`pkg/vmclass/resolved_policies.go`, `test/e2e/vmservice`)
 - [ ] T202d [US7] [vmop-4322] Resolve governance-filtered vGPU and Dynamic DirectPath options with permitted display metadata (`pkg/vmclass/resolved_devices.go`, `test/e2e/vmservice`)
 
 

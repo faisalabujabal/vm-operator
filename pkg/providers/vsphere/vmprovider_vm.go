@@ -69,6 +69,7 @@ import (
 	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 	pkgvol "github.com/vmware-tanzu/vm-operator/pkg/util/volumes"
 	vmutil "github.com/vmware-tanzu/vm-operator/pkg/util/vsphere/vm"
+	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 	vmconfbootoptions "github.com/vmware-tanzu/vm-operator/pkg/vmconfig/bootoptions"
 	vmconfcrypto "github.com/vmware-tanzu/vm-operator/pkg/vmconfig/crypto"
 	vmconfdiskpromo "github.com/vmware-tanzu/vm-operator/pkg/vmconfig/diskpromo"
@@ -1084,6 +1085,11 @@ func (vs *vSphereVMProvider) updateVirtualMachine(
 	//
 	// 10. Reconcile config
 	//
+	if changed, err := vs.refreshSameClassDefaults(&vmCtx); err != nil {
+		return fmt.Errorf("refresh same-class defaults: %w", err)
+	} else if changed {
+		return pkgerr.NoRequeueNoErr("refreshed same-class defaults")
+	}
 	if err := vs.reconcileConfig(vmCtx, vcVM, vcClient); err != nil {
 		if pkgerr.IsNoRequeueError(err) {
 			// When disk registration is pending and VMSnapshots are enabled,
@@ -1450,6 +1456,29 @@ func (vs *vSphereVMProvider) reconcileSchemaUpgrade(
 		vs.k8sClient,
 		vmCtx.VM,
 		vmCtx.MoVM)
+}
+
+type resizeClassContextKey struct{}
+
+// refreshSameClassDefaults runs within the config step, before any reconfigure.
+// Class snapshots and last-resized annotations remain owned by resize completion.
+func (vs *vSphereVMProvider) refreshSameClassDefaults(vmCtx *pkgctx.VirtualMachineContext) (bool, error) {
+	features := pkgcfg.FromContext(vmCtx).Features
+	if !features.VMServiceClasslessVM || !features.VMResizeCPUMemory || vmCtx.VM.Spec.ClassName == "" {
+		return false, nil
+	}
+	if _, ok := vmCtx.VM.Annotations[vmopv1.VirtualMachineSameVMClassResizeAnnotation]; !ok {
+		return false, nil
+	}
+	class, err := getVirtualMachineClassFromClassName(*vmCtx, vs.k8sClient)
+	if err != nil {
+		return false, err
+	}
+	// Pin this generation for both argument builders and resize completion. A
+	// concurrent class edit must be observed by the next reconciliation, rather
+	// than acknowledged before its defaults have been materialized.
+	vmCtx.Context = context.WithValue(vmCtx.Context, resizeClassContextKey{}, class)
+	return vmclass.RefreshSameClassDefaults(vmCtx, vs.k8sClient, vs, vmCtx.VM, &class)
 }
 
 func (vs *vSphereVMProvider) reconcileConfig(

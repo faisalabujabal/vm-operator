@@ -40,6 +40,7 @@ import (
 	"github.com/vmware-tanzu/vm-operator/pkg/util/resize"
 	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 	vmutil "github.com/vmware-tanzu/vm-operator/pkg/util/vsphere/vm"
+	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 	"github.com/vmware-tanzu/vm-operator/pkg/vmconfig"
 	vmconfanno2extraconfig "github.com/vmware-tanzu/vm-operator/pkg/vmconfig/anno2extraconfig"
 	vmconfbootoptions "github.com/vmware-tanzu/vm-operator/pkg/vmconfig/bootoptions"
@@ -705,7 +706,8 @@ func updateConfigSpec(
 		resize.CompareMemoryAllocation(*config, updateArgs.ConfigSpec, configSpec)
 		// For backward compatibility, sync the class CPU/memory values into vm.Spec so that
 		// OverwriteSpecComputeConfig does not override them with backfilled spec values.
-		if pkgcfg.FromContext(vmCtx).Features.VMServiceClasslessVM {
+		if pkgcfg.FromContext(vmCtx).Features.VMServiceClasslessVM &&
+			!vmclass.SameClassResizeRequested(vmCtx, vmCtx.VM, &updateArgs.VMClass) {
 			vmopv1util.SyncClassSizeAndAllocationToSpec(vmCtx.VM, updateArgs.ConfigSpec)
 		}
 	}
@@ -993,7 +995,8 @@ func (s *Session) resizeVMWhenPoweredStateOff(
 			// For backward compatibility, sync class compute fields into spec
 			// before building the diff so that OverwriteSpecComputeConfig
 			// applies the class intent. Scope of sync matches the scope of the resize path.
-			if pkgcfg.FromContext(vmCtx).Features.VMServiceClasslessVM {
+			if pkgcfg.FromContext(vmCtx).Features.VMServiceClasslessVM &&
+				!vmclass.SameClassResizeRequested(vmCtx, vmCtx.VM, resizeArgs.VMClass) {
 				vmopv1util.SyncClassSizeAndAllocationToSpec(vmCtx.VM, resizeArgs.ConfigSpec)
 			}
 			configSpec, err = resize.CreateResizeCPUMemoryConfigSpec(vmCtx, *moVM.Config, resizeArgs.ConfigSpec)

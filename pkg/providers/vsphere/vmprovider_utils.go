@@ -146,6 +146,10 @@ func getVirtualMachineClassFromClassName(
 	vmCtx pkgctx.VirtualMachineContext,
 	k8sClient ctrlclient.Client) (vmopv1.VirtualMachineClass, error) {
 
+	if class, ok := vmCtx.Value(resizeClassContextKey{}).(vmopv1.VirtualMachineClass); ok {
+		return *class.DeepCopy(), nil
+	}
+
 	var (
 		obj vmopv1.VirtualMachineClass
 		key = ctrlclient.ObjectKey{

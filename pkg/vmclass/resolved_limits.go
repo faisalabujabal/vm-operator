@@ -33,6 +33,7 @@ func ResolveClassLimits(class *vmopv1.VirtualMachineClass, classes []vmopv1.Virt
 	clusters := resolvedClusters(&class.Spec, clusterIDs, targets, options, guests)
 	fields := resolveResourceFields(&class.Spec, ceilingSpec, clusters)
 	fields = append(fields, resolvePolicyFields(&class.Spec, ceilingSpec, clusters)...)
+	fields = append(fields, resolveDeviceFields(&class.Spec, ceilingSpec, clusters)...)
 	if err != nil {
 		for i := range fields {
 			fields[i].State = "Unknown"

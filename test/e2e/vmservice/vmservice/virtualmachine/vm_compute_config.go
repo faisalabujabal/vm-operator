@@ -499,7 +499,7 @@ func VMComputeConfigSpec(ctx context.Context, inputGetter func() VMComputeConfig
 				vmNamespace, vmName, string(vmopv1.VirtualMachinePowerStateOn))
 		})
 
-	It("refreshes same-class defaults only after an explicit resize request",
+	It("protects class-supplied fields while allowing explicit same-class default refresh",
 		Label("core-functional", "experimental"), func() {
 			class := &vmopv1.VirtualMachineClass{
 				ObjectMeta: metav1.ObjectMeta{
@@ -540,6 +540,43 @@ func VMComputeConfigSpec(ctx context.Context, inputGetter func() VMComputeConfig
 				g.Expect(statusCPU(vm).Total).To(BeEquivalentTo(2))
 				g.Expect(statusCPU(vm).HotAddEnabled).To(HaveValue(BeTrue()))
 			}, config.GetIntervals("default", "wait-virtual-machine-resize")...).Should(Succeed())
+
+			By("rejecting user edits to class-supplied fields with an actionable hint")
+			for _, fieldPath := range []string{"spec.resources.size.cpu", "spec.cpuAdvanced.hotAddEnabled"} {
+				Eventually(func(g Gomega) {
+					g.Expect(svClusterClient.Get(ctx, key, vm)).To(Succeed())
+					patch := ctrlclient.MergeFrom(vm.DeepCopy())
+					switch fieldPath {
+					case "spec.resources.size.cpu":
+						vm.Spec.Resources.Size.CPU = ptr.To(resource.MustParse("4"))
+					case "spec.cpuAdvanced.hotAddEnabled":
+						vm.Spec.CPUAdvanced.HotAddEnabled = ptr.To(false)
+					}
+					err := svClusterClient.Patch(ctx, vm, patch)
+					g.Expect(err).To(HaveOccurred())
+					g.Expect(err.Error()).To(ContainSubstring(fieldPath))
+					g.Expect(err.Error()).To(ContainSubstring("remove spec.className"))
+				}, config.GetIntervals("default", "wait-virtual-machine-resize")...).Should(Succeed())
+			}
+
+			By("accepting metadata and a boot delay that the class does not supply")
+			Eventually(func(g Gomega) {
+				g.Expect(svClusterClient.Get(ctx, key, vm)).To(Succeed())
+				patch := ctrlclient.MergeFrom(vm.DeepCopy())
+				if vm.Labels == nil {
+					vm.Labels = map[string]string{}
+				}
+				vm.Labels["e2e-class-field-protection"] = "accepted"
+				if vm.Spec.BootOptions == nil {
+					vm.Spec.BootOptions = &vmopv1.VirtualMachineBootOptions{}
+				}
+				vm.Spec.BootOptions.BootDelay = &metav1.Duration{Duration: time.Second}
+				g.Expect(svClusterClient.Patch(ctx, vm, patch)).To(Succeed())
+			}, config.GetIntervals("default", "wait-virtual-machine-resize")...).Should(Succeed())
+			Expect(svClusterClient.Get(ctx, key, vm)).To(Succeed())
+			Expect(vm.Labels).To(HaveKeyWithValue("e2e-class-field-protection", "accepted"))
+			Expect(vm.Spec.BootOptions).ToNot(BeNil())
+			Expect(vm.Spec.BootOptions.BootDelay).To(HaveValue(Equal(metav1.Duration{Duration: time.Second})))
 
 			By("changing CPU size and removing the class hot-add default")
 			Eventually(func(g Gomega) {

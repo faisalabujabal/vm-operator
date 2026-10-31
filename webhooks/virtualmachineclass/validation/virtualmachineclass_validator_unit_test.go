@@ -6,10 +6,14 @@ package validation_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	jsonpatch "github.com/evanphx/json-patch/v5"
+	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -22,6 +26,7 @@ import (
 	vmopv1common "github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
+	"github.com/vmware-tanzu/vm-operator/webhooks/virtualmachineclass/mutation"
 	"github.com/vmware-tanzu/vm-operator/webhooks/virtualmachineclass/validation"
 
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
@@ -391,6 +396,47 @@ var _ = Describe("Governance admission", Label(testlabels.API, testlabels.Valida
 		ctx.Obj.SetLabels(map[string]string{"controller": "update"})
 		Expect(governanceTestResponse(ctx, true).Allowed).To(BeTrue())
 	})
+	DescribeTable("class mutation and validation pipeline after capability activation", func(specEdit bool) {
+		candidate := governanceTestClass("selectable", "tenant")
+		candidate.Spec.Governs.Zones = &[]string{}
+		candidate.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("16"))
+		candidate.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{
+			Default: ptr.To([]vmopv1.VGPUDevice{{ProfileName: "gpu"}}),
+		}
+		ctx := governanceTestContext(candidate, true, governanceTestClass("ceiling", "tenant"))
+		ctx.Obj.SetAPIVersion(vmopv1.GroupVersion.String())
+		ctx.Obj.SetKind("VirtualMachineClass")
+		ctx.OldObj = ctx.Obj.DeepCopy()
+		ctx.Obj.SetLabels(map[string]string{"controller": "housekeeping"})
+		ctx.Op = admissionv1.Update
+		if specEdit {
+			Expect(unstructured.SetNestedField(ctx.Obj.Object, "spec edit", "spec", "description")).To(Succeed())
+		}
+		raw, err := json.Marshal(ctx.Obj)
+		Expect(err).NotTo(HaveOccurred())
+		ctx.RawObj = raw
+		response := mutation.NewMutator(nil).Mutate(&ctx.WebhookRequestContext)
+		Expect(response.Allowed).To(BeTrue())
+		if specEdit {
+			Expect(response.Patches).NotTo(BeEmpty())
+			patchJSON, err := json.Marshal(response.Patches)
+			Expect(err).NotTo(HaveOccurred())
+			patch, err := jsonpatch.DecodePatch(patchJSON)
+			Expect(err).NotTo(HaveOccurred())
+			mutated, err := patch.Apply(raw)
+			Expect(err).NotTo(HaveOccurred())
+			ctx.Obj = &unstructured.Unstructured{}
+			Expect(json.Unmarshal(mutated, ctx.Obj)).To(Succeed())
+		} else {
+			Expect(response.Patches).To(BeEmpty(), "housekeeping must not acquire spec defaults")
+		}
+		validationResponse := ctx.ValidateUpdate(&ctx.WebhookRequestContext)
+		Expect(validationResponse.Allowed).To(Equal(!specEdit))
+		if specEdit {
+			Expect(string(validationResponse.Result.Reason)).To(ContainSubstring("spec.resources.size.cpu"))
+		}
+	}, Entry("metadata-only update", false), Entry("actual spec edit", true))
+
 	It("permits updates while a noncompliant class is deleting", func() {
 		candidate := governanceTestClass("selectable", "tenant")
 		candidate.Spec.Governs.ExistingVMs = ""

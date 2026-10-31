@@ -46,4 +46,9 @@ type VirtualMachineClassZoneStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// ResolvedLimits reports per-field policy restrictions and hardware choices.
+	// +optional
+	// +listType=map
+	// +listMapKey=path
+	ResolvedLimits []VirtualMachineClassResolvedField `json:"resolvedLimits,omitempty"`
 }

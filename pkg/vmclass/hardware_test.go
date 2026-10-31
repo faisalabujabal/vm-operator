@@ -5,9 +5,11 @@
 package vmclass_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,6 +17,7 @@ import (
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	vimv1 "github.com/vmware-tanzu/vm-operator/external/vim/api/v1alpha1"
+	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 )
@@ -209,4 +212,180 @@ func TestHardwareRawDynamicIdentity(t *testing.T) {
 			g.Expect(evaluate()).To(Equal(metav1.ConditionFalse))
 		})
 	}
+}
+
+var _ = Describe("Resolved class resource limits", Label(testlabels.API), func() {
+	var f hardwareFixture
+	var classes []vmopv1.VirtualMachineClass
+	var resolve func(string) vmopv1.VirtualMachineClassResolvedField
+	BeforeEach(func() {
+		f = newHardwareFixture()
+		f.class.Namespace = "tenant"
+		f.class.Name = "selectable"
+		f.class.Spec.Resources = vmopv1.VirtualMachineClassResources{}
+		classes = nil
+		resolve = func(path string) vmopv1.VirtualMachineClassResolvedField {
+			for _, field := range vmclass.ResolveClassLimits(&f.class, classes, "zone-a", f.ids, f.targets, f.options, f.guests) {
+				if field.Path == path {
+					return field
+				}
+			}
+			Fail("missing field " + path)
+			return vmopv1.VirtualMachineClassResolvedField{}
+		}
+	})
+
+	It("falls back to exact hardware CPU choices without inventing values between them", func() {
+		field := resolve("resources.size.cpu")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.Quantity.Values).To(WithTransform(quantityCounts, Equal([]int64{1, 2, 4, 8})))
+		Expect(field.Available.Quantity.Ranges).To(BeEmpty())
+		Expect(field.Policy.Quantity.Ranges).To(HaveLen(1))
+		Expect(field.Policy.Quantity.Ranges[0].Min).To(BeNil())
+		Expect(field.Policy.Quantity.Ranges[0].Max).To(BeNil())
+	})
+
+	It("intersects selectable, governing and hardware bounds without changing inputs", func() {
+		f.class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Min: ptr.To(resource.MustParse("2")), Max: ptr.To(resource.MustParse("16")), Default: ptr.To(resource.MustParse("4"))}
+		governor := f.class.DeepCopy()
+		governor.Name = "governor"
+		governor.Spec.Governs = &vmopv1.VirtualMachineClassGovernance{}
+		governor.Spec.Resources.Size.CPU.Min = ptr.To(resource.MustParse("3"))
+		governor.Spec.Resources.Size.CPU.Max = ptr.To(resource.MustParse("6"))
+		classes = []vmopv1.VirtualMachineClass{*governor}
+		beforeClass, beforeGovernor := f.class.DeepCopy(), governor.DeepCopy()
+		field := resolve("resources.size.cpu")
+		Expect(field.Available.Quantity.Values).To(WithTransform(quantityCounts, Equal([]int64{4})))
+		Expect(field.Policy.Quantity.Ranges[0].Min.Cmp(resource.MustParse("3"))).To(BeZero())
+		Expect(field.Policy.Quantity.Ranges[0].Max.Cmp(resource.MustParse("6"))).To(BeZero())
+		Expect(&f.class).To(Equal(beforeClass))
+		Expect(&classes[0]).To(Equal(beforeGovernor))
+	})
+
+	It("does not turn a default-only policy into a fixed limit", func() {
+		f.class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Default: ptr.To(resource.MustParse("4"))}
+		Expect(resolve("resources.size.cpu").Available.Quantity.Values).To(HaveLen(4))
+	})
+
+	It("retains policy-only allocation constraints when no browser allocation domain exists", func() {
+		f.class.Spec.Resources.Requests.CPU = vmopv1.FixedClassResource(resource.MustParse("2"))
+		field := resolve("resources.requests.cpu")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Available).To(BeNil())
+		Expect(field.Policy.Quantity.Ranges[0].Max.Cmp(resource.MustParse("2"))).To(BeZero())
+		Expect(resolve("resources.limits.memory").State).To(Equal("Unknown"))
+	})
+
+	It("distinguishes a known empty CPU intersection from missing discovery", func() {
+		f.class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("3"))
+		field := resolve("resources.size.cpu")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Reason).To(Equal("NoPermittedValues"))
+		Expect(field.Available.Quantity.Values).To(BeEmpty())
+		f.options = nil
+		field = resolve("resources.size.cpu")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Available).To(BeNil())
+		Expect(field.Policy.Quantity.Ranges).To(HaveLen(1))
+	})
+
+	It("suppresses partial choices if another cluster lacks authoritative options", func() {
+		f.ids = append(f.ids, "cluster-b")
+		field := resolve("resources.size.cpu")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Available).To(BeNil())
+	})
+
+	It("rejects ambiguous or stale options snapshots", func() {
+		f.options = append(f.options, *f.options[0].DeepCopy())
+		Expect(resolve("resources.size.cpu").State).To(Equal("Unknown"))
+		f.options = f.options[:1]
+		f.options[0].Generation++
+		Expect(resolve("resources.size.cpu").State).To(Equal("Unknown"))
+	})
+
+	It("preserves gaps between memory intervals from different clusters", func() {
+		f.options[0].Status.HardwareOptions.Memory.Min = resource.MustParse("1Gi")
+		f.options[0].Status.HardwareOptions.Memory.Max = resource.MustParse("2Gi")
+		target := f.targets[0].DeepCopy()
+		target.UID, target.Spec.ID.ID = "b", "cluster-b"
+		option := f.options[0].DeepCopy()
+		option.OwnerReferences[0].UID = "b"
+		option.Annotations["vmoperator.vmware.com/environment-browser-cluster"] = "cluster-b"
+		option.Status.HardwareOptions.Memory.Min = resource.MustParse("4Gi")
+		option.Status.HardwareOptions.Memory.Max = resource.MustParse("6Gi")
+		f.ids = append(f.ids, "cluster-b")
+		f.targets = append(f.targets, *target)
+		f.options = append(f.options, *option)
+		field := resolve("resources.size.memory")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.Quantity.Ranges).To(HaveLen(2))
+		Expect(field.Available.Quantity.Ranges[0].Max.Cmp(resource.MustParse("2Gi"))).To(BeZero())
+		Expect(field.Available.Quantity.Ranges[1].Min.Cmp(resource.MustParse("4Gi"))).To(BeZero())
+	})
+
+	It("never merges conflicting governing classes into a permissive policy", func() {
+		governor := f.class.DeepCopy()
+		governor.Spec.Governs = &vmopv1.VirtualMachineClassGovernance{}
+		governor.Name = "one"
+		classes = append(classes, *governor)
+		governor.Name = "two"
+		classes = append(classes, *governor)
+		field := resolve("resources.size.cpu")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Reason).To(Equal("GovernanceUnresolved"))
+		Expect(field.Policy).To(BeNil())
+		Expect(field.Available).To(BeNil())
+	})
+
+	It("does not present a guest-specific class as resolved without guest evidence", func() {
+		f.class.Spec.ConfigSpec = []byte(`{"_typeName":"VirtualMachineConfigSpec","guestId":"otherLinux64Guest"}`)
+		Expect(resolve("resources.size.cpu").State).To(Equal("Unknown"))
+		Expect(resolve("resources.size.memory").State).To(Equal("Unknown"))
+	})
+
+	It("does not accept a requested hardware version above the target maximum", func() {
+		f.class.Spec.ConfigSpec = []byte(`{"_typeName":"VirtualMachineConfigSpec","version":"vmx-22"}`)
+		f.options[0].Spec.HardwareVersion = "vmx-22"
+		Expect(resolve("resources.size.cpu").State).To(Equal("Unknown"))
+		Expect(resolve("resources.size.memory").Available).To(BeNil())
+	})
+
+	It("narrows memory with semantically equivalent quantity bounds", func() {
+		f.class.Spec.Resources.Size.Memory = &vmopv1.ResourceQuantityRange{
+			Min: ptr.To(resource.MustParse("1024Mi")), Max: ptr.To(resource.MustParse("4096Mi")), Default: ptr.To(resource.MustParse("2Gi")),
+		}
+		field := resolve("resources.size.memory")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.Quantity.Ranges).To(HaveLen(1))
+		Expect(field.Available.Quantity.Ranges[0].Min.Cmp(resource.MustParse("1Gi"))).To(BeZero())
+		Expect(field.Available.Quantity.Ranges[0].Max.Cmp(resource.MustParse("4Gi"))).To(BeZero())
+	})
+
+	It("applies guest-specific CPU and memory ceilings", func() {
+		f.class.Spec.ConfigSpec = []byte(`{"_typeName":"VirtualMachineConfigSpec","guestId":"otherLinux64Guest"}`)
+		f.guests = []vimv1.VirtualMachineGuestOptions{{Spec: vimv1.VirtualMachineGuestOptionsSpec{ID: "otherLinux64Guest"},
+			Status: vimv1.VirtualMachineGuestOptionsStatus{HardwareVersions: []vimv1.VirtualMachineGuestOptionsHardwareVersionStatus{{
+				HardwareVersion: "vmx-21", SupportedMaxCPUs: 2, SupportedMinMem: ptr.To(resource.MustParse("1Gi")), SupportedMaxMem: ptr.To(resource.MustParse("4Gi")),
+			}}},
+		}}
+		Expect(resolve("resources.size.cpu").Available.Quantity.Values).To(WithTransform(quantityCounts, Equal([]int64{1, 2})))
+		Expect(resolve("resources.size.memory").Available.Quantity.Ranges[0].Max.Cmp(resource.MustParse("4Gi"))).To(BeZero())
+	})
+
+	It("does not expose discovery identifiers or pool totals", func() {
+		fields := vmclass.ResolveClassLimits(&f.class, classes, "zone-a", f.ids, f.targets, f.options, f.guests)
+		encoded, err := json.Marshal(fields)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(encoded)).NotTo(ContainSubstring("cluster-a"))
+		Expect(string(encoded)).NotTo(ContainSubstring("environment-browser-cluster"))
+	})
+})
+
+func quantityCounts(values []resource.Quantity) []int64 {
+	result := make([]int64, len(values))
+	for i := range values {
+		result[i] = values[i].Value()
+	}
+	return result
 }

@@ -1132,6 +1132,50 @@ var _ = Describe("Indexed class ExtraConfig overlay", Label("api"), func() {
 })
 
 var _ = Describe("Class governance conversion", Label("api"), func() {
+	It("preserves resolved choices, known empty domains and unknown evidence through every older API", func() {
+		minimum, maximum := resource.MustParse("2"), resource.MustParse("8")
+		for _, spoke := range []interface {
+			ConvertFrom(ctrlconversion.Hub) error
+			ConvertTo(ctrlconversion.Hub) error
+		}{&vmopv1a1.VirtualMachineClass{}, &vmopv1a2.VirtualMachineClass{}, &vmopv1a3.VirtualMachineClass{}, &vmopv1a4.VirtualMachineClass{}, &vmopv1a5.VirtualMachineClass{}} {
+			hub := classWithPolicies()
+			hub.Status = vmopv1.VirtualMachineClassStatus{ObservedGeneration: 7, Zones: []vmopv1.VirtualMachineClassZoneStatus{{
+				Name: "zone-a",
+				ResolvedLimits: []vmopv1.VirtualMachineClassResolvedField{
+					{
+						Path: "resources.size.cpu", State: "Complete", Reason: "Resolved",
+						Policy: &vmopv1.VirtualMachineClassResolvedDomain{Quantity: &vmopv1.VirtualMachineClassResolvedQuantityDomain{
+							Ranges: []vmopv1.VirtualMachineClassResolvedQuantityRange{{Min: &minimum, Max: &maximum}},
+						}},
+						Available: &vmopv1.VirtualMachineClassResolvedDomain{Quantity: &vmopv1.VirtualMachineClassResolvedQuantityDomain{
+							Values: []resource.Quantity{resource.MustParse("2"), resource.MustParse("4"), resource.MustParse("8")},
+						}},
+					},
+					{
+						Path: "resources.size.memory", State: "Complete", Reason: "EmptyIntersection",
+						Available: &vmopv1.VirtualMachineClassResolvedDomain{Quantity: &vmopv1.VirtualMachineClassResolvedQuantityDomain{}},
+					},
+					{
+						Path: "resources.requests.cpu", State: "Unknown", Reason: "HardwareEvidenceUnavailable",
+						Policy: &vmopv1.VirtualMachineClassResolvedDomain{Quantity: &vmopv1.VirtualMachineClassResolvedQuantityDomain{
+							Ranges: []vmopv1.VirtualMachineClassResolvedQuantityRange{{Min: &minimum}},
+						}},
+					},
+				},
+			}}}
+			before := hub.DeepCopy()
+			Expect(spoke.ConvertFrom(hub)).To(Succeed())
+			var restored vmopv1.VirtualMachineClass
+			Expect(spoke.ConvertTo(&restored)).To(Succeed())
+			Expect(restored.Status).To(Equal(hub.Status))
+			Expect(restored.Status.Zones[0].ResolvedLimits[1].Available.Quantity).NotTo(BeNil())
+			Expect(restored.Status.Zones[0].ResolvedLimits[2].Available).To(BeNil())
+			restored.Status.Zones[0].ResolvedLimits[0].Policy.Quantity.Ranges[0].Min.Set(99)
+			restored.Status.Zones[0].ResolvedLimits[0].Available.Quantity.Values[0].Set(99)
+			Expect(hub).To(Equal(before))
+		}
+	})
+
 	It("clears hub-only governance fields when reusing a destination without preserved data", func() {
 		for _, spoke := range []interface {
 			ConvertTo(ctrlconversion.Hub) error

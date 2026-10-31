@@ -331,7 +331,7 @@ func (r *Reconciler) reconcileGovernance(ctx *pkgctx.VirtualMachineClassContext)
 		}
 	}
 	ctx.VMClass.Status = governance.ClassStatus(ctx.VMClass, classes.Items, names)
-	return r.reconcileHardware(ctx, zones.Items)
+	return r.reconcileHardware(ctx, zones.Items, classes.Items)
 }
 
 // classesForHardware includes status-only updates: discovery refreshes do not
@@ -353,7 +353,7 @@ func (r *Reconciler) classesForHardware(ctx context.Context, _ client.Object) []
 	return requests
 }
 
-func (r *Reconciler) reconcileHardware(ctx *pkgctx.VirtualMachineClassContext, zones []topologyv1.Zone) error {
+func (r *Reconciler) reconcileHardware(ctx *pkgctx.VirtualMachineClassContext, zones []topologyv1.Zone, classes []vmopv1.VirtualMachineClass) error {
 	if len(ctx.VMClass.Status.Zones) == 0 {
 		return nil
 	}
@@ -383,6 +383,7 @@ func (r *Reconciler) reconcileHardware(ctx *pkgctx.VirtualMachineClassContext, z
 			clusterIDs = append(clusterIDs, id)
 		}
 		apimeta.SetStatusCondition(&status.Conditions, vmclass.HardwareCompatibility(ctx.VMClass, clusterIDs, targets.Items, options.Items, guests.Items))
+		status.ResolvedLimits = vmclass.ResolveClassLimits(ctx.VMClass, classes, status.Name, clusterIDs, targets.Items, options.Items, guests.Items)
 	}
 	return nil
 }

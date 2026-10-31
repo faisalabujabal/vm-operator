@@ -12,6 +12,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -22,6 +23,9 @@ import (
 	"github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
+	"github.com/vmware-tanzu/vm-operator/pkg/patch"
+	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
+	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 )
 
@@ -548,4 +552,107 @@ var _ = Describe("Class admission defaults", Label(testlabels.Mutation, testlabe
 		Expect(changed).To(BeFalse())
 		Expect(spec).To(Equal(*before))
 	})
+})
+
+var _ = Describe("Same-class resize defaults", Label(testlabels.Controller), func() {
+	for _, scenario := range []string{"refresh", "conflict", "provider failure", "projection failure", "disabled", "resize disabled", "no annotation", "already resized", "class change"} {
+		It(scenario, func() {
+			ctx := pkgcfg.NewContextWithDefaultConfig()
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) {
+				c.Features.VMServiceClasslessVM = true
+				c.Features.VMResizeCPUMemory = true
+				c.Features.ImmutableClasses = true
+			})
+			scheme := runtime.NewScheme()
+			Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
+			class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "class", Namespace: "ns", UID: "class-uid", Generation: 2}}
+			class.Spec.MemoryAdvanced = &vmopv1.VirtualMachineClassMemoryAdvancedSpec{ReservationLockedToMax: vmopv1.FixedClassBool(true)}
+			class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: vmopv1.FixedClassLong(5000)}
+			vm := &vmopv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Name: "vm", Namespace: "ns", Annotations: map[string]string{vmopv1.VirtualMachineSameVMClassResizeAnnotation: ""}}}
+			vm.Spec.ClassName = class.Name
+			vm.Spec.Class = &common.LocalObjectRef{Name: "old-snapshot"}
+			vm.Spec.CPUAdvanced = &vmopv1.VirtualMachineCPUAdvancedSpec{HotAddEnabled: ptr.To(true)}
+			vm.Spec.Advanced = &vmopv1.VirtualMachineAdvancedSpec{ChangeBlockTracking: ptr.To(true)}
+			oldClass := class.DeepCopy()
+			oldClass.Generation = 1
+			Expect(vmopv1util.SetLastResizedAnnotation(vm, *oldClass)).To(Succeed())
+			switch scenario {
+			case "disabled":
+				pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+			case "resize disabled":
+				pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMResizeCPUMemory = false })
+			case "no annotation":
+				delete(vm.Annotations, vmopv1.VirtualMachineSameVMClassResizeAnnotation)
+			case "already resized":
+				Expect(vmopv1util.SetLastResizedAnnotation(vm, *class)).To(Succeed())
+			case "class change":
+				Expect(vmopv1util.SetLastResizedAnnotationClassName(vm, "previous")).To(Succeed())
+			}
+			c := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(vm).WithObjects(vm).Build()
+			Expect(c.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), vm)).To(Succeed())
+			before := vm.DeepCopy()
+			helper, err := patch.NewHelper(vm, c)
+			Expect(err).NotTo(HaveOccurred())
+			if scenario == "conflict" {
+				concurrent := vm.DeepCopy()
+				concurrent.Spec.GuestID = "otherGuest64"
+				Expect(c.Update(ctx, concurrent)).To(Succeed())
+			}
+			calls := 0
+			provider := resourceProvider(func(context.Context, vmopv1.VirtualMachineClassSpec) (*vmopv1.VirtualMachineResourcesSpec, error) {
+				calls++
+				if scenario == "provider failure" {
+					return nil, errors.New("provider unavailable")
+				}
+				return &vmopv1.VirtualMachineResourcesSpec{Size: &vmopv1.VirtualMachineResourceQuantity{CPU: resource.NewQuantity(4, resource.DecimalSI)}, Requests: &vmopv1.VirtualMachineResourceQuantity{Memory: resource.NewQuantity(1024, resource.BinarySI)}}, nil
+			})
+			if scenario == "projection failure" {
+				class.Spec.ConfigSpec = []byte("invalid")
+			}
+			changed, err := vmclass.RefreshSameClassDefaults(ctx, c, provider, vm, class)
+			Expect(vm).To(Equal(before), "isolated patch must leave deferred helper object unchanged")
+			if scenario == "conflict" {
+				Expect(apierrors.IsConflict(err)).To(BeTrue())
+				Expect(changed).To(BeFalse())
+				Expect(c.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), vm)).To(Succeed())
+				changed, err = vmclass.RefreshSameClassDefaults(ctx, c, provider, vm, class)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(changed).To(BeTrue())
+				return
+			}
+			if scenario == "provider failure" || scenario == "projection failure" {
+				Expect(err).To(HaveOccurred())
+				stored := &vmopv1.VirtualMachine{}
+				Expect(c.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), stored)).To(Succeed())
+				Expect(stored.Spec).To(Equal(before.Spec))
+				return
+			}
+			Expect(err).NotTo(HaveOccurred())
+			if scenario != "refresh" {
+				Expect(changed).To(BeFalse())
+				Expect(calls).To(BeZero())
+				return
+			}
+			Expect(changed).To(BeTrue())
+			current := &vmopv1.VirtualMachine{}
+			Expect(c.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), current)).To(Succeed())
+			Expect(current.Spec.Resources.Size.CPU.Value()).To(Equal(int64(4)))
+			Expect(current.Spec.Resources.Requests.Memory).To(BeNil())
+			Expect(current.Spec.MemoryAdvanced.ReservationLockedToMax).To(HaveValue(BeTrue()))
+			Expect(current.Spec.CPUAdvanced.HotAddEnabled).To(BeNil())
+			Expect(current.Spec.Advanced).To(BeNil())
+			Expect(current.Spec.BootOptions.BootDelay.Duration.Milliseconds()).To(Equal(int64(5000)))
+			Expect(current.Spec.Class).To(Equal(before.Spec.Class))
+			Expect(current.Annotations).To(Equal(before.Annotations))
+			changed, err = vmclass.RefreshSameClassDefaults(ctx, c, provider, current, class)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(changed).To(BeFalse(), "next reconcile must reach resize completion")
+			current.Spec.CPUAdvanced.HotAddEnabled = ptr.To(true)
+			Expect(c.Update(ctx, current)).To(Succeed())
+			vm.Annotations["unrelated"] = "update"
+			Expect(helper.Patch(ctx, vm)).To(Succeed())
+			Expect(c.Get(ctx, ctrlclient.ObjectKeyFromObject(vm), current)).To(Succeed())
+			Expect(current.Spec.CPUAdvanced.HotAddEnabled).To(HaveValue(BeTrue()), "deferred patch must preserve later user edit")
+		})
+	}
 })

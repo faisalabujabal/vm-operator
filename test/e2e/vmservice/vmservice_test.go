@@ -121,6 +121,12 @@ var _ = Describe("Testing VM Services", Label("devops"), Label("viadmin"), Label
 			})
 		})
 
+		Context("VM-ZONE-SELECTION", func() {
+			virtualmachine.VMZoneSelectionSpec(context.TODO(), func() virtualmachine.VMSpecInput {
+				return virtualmachine.VMSpecInput{ClusterProxy: svClusterProxy, Config: config, WCPClient: wcpClient, WCPNamespaceName: wcpNamespaceName, LinuxVMName: linuxVMName}
+			})
+		})
+
 		Context("VM-CLASS-HARDWARE", func() {
 			virtualmachine.VMClassHardwareSpec(context.TODO(), func() virtualmachine.VMClassSchemaUpgradeInput {
 				return virtualmachine.VMClassSchemaUpgradeInput{ClusterProxy: svClusterProxy, Config: config, WCPClient: wcpClient, WCPNamespaceName: wcpNamespaceName}

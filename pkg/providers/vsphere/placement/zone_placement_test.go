@@ -10,9 +10,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/simulator"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -107,6 +109,65 @@ func vcSimPlacement() {
 		ctx.AfterEach()
 		ctx = nil
 		initObjects = nil
+	})
+
+	Context("value-based governance placement", func() {
+		BeforeEach(func() { testConfig.NumFaultDomains = 3 })
+		It("retains an already selected instance-storage host on a governed retry", func() {
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) {
+				c.Features.VMServiceClasslessVM = true
+				c.Features.InstanceStorage = true
+				c.Features.FastDeploy = false
+			})
+			vm.Labels[corev1.LabelTopologyZone] = ctx.ZoneNames[0]
+			initial, err := placement.Placement(vmCtx, ctx.Client, ctx.VCClient.Client, ctx.Finder, configSpec, constraints)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(initial.PoolMoRef.Value).NotTo(BeEmpty())
+			owner, err := object.NewResourcePool(ctx.VCClient.Client, initial.PoolMoRef).Owner(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			hosts, err := object.NewClusterComputeResource(ctx.VCClient.Client, owner.Reference()).Hosts(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hosts).NotTo(BeEmpty())
+			hostID := hosts[0].Reference().Value
+			builder.AddDummyInstanceStorageVolume(vm)
+			vm.Annotations[constants.InstanceStorageSelectedNodeMOIDAnnotationKey] = hostID
+			result, err := placement.Placement(vmCtx, ctx.Client, ctx.VCClient.Client, ctx.Finder, configSpec, constraints)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.InstanceStoragePlacement).To(BeTrue())
+			Expect(result.HostMoRef).NotTo(BeNil())
+			Expect(result.HostMoRef.Value).To(Equal(hostID))
+			Expect(result.PoolMoRef).To(Equal(initial.PoolMoRef))
+			vm.Annotations[constants.InstanceStorageSelectedNodeMOIDAnnotationKey] = "host-ineligible"
+			_, err = placement.Placement(vmCtx, ctx.Client, ctx.VCClient.Client, ctx.Finder, configSpec, constraints)
+			Expect(err).To(MatchError(ContainSubstring("no eligible resource pool")))
+			Expect(result.ZoneName).To(Equal(ctx.ZoneNames[0]))
+		})
+
+		It("passes only zones matching resolved CPU values to placement", func() {
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+			Expect(ctx.ZoneNames).To(HaveLen(3))
+			for i, name := range []string{"a", "bc"} {
+				zones := ctx.ZoneNames[:1]
+				minimum, maximum := "2", "4"
+				if i == 1 {
+					zones = ctx.ZoneNames[1:]
+					minimum, maximum = "5", "8"
+				}
+				governor := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: vm.Namespace}, Spec: vmopv1.VirtualMachineClassSpec{Governs: &vmopv1.VirtualMachineClassGovernance{Zones: &zones}, Resources: vmopv1.VirtualMachineClassResources{Size: vmopv1.VirtualMachineClassResourceSpec{CPU: &vmopv1.ResourceQuantityRange{Min: ptr.To(resource.MustParse(minimum)), Max: ptr.To(resource.MustParse(maximum)), Default: ptr.To(resource.MustParse(minimum))}}}}}
+				Expect(ctx.Client.Create(ctx, governor)).To(Succeed())
+			}
+			configSpec.NumCPUs = 2
+			result, err := placement.Placement(vmCtx, ctx.Client, ctx.VCClient.Client, ctx.Finder, configSpec, constraints)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.ZoneName).To(Equal(ctx.ZoneNames[0]))
+			configSpec.NumCPUs = 6
+			result, err = placement.Placement(vmCtx, ctx.Client, ctx.VCClient.Client, ctx.Finder, configSpec, constraints)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.ZoneName).To(BeElementOf(ctx.ZoneNames[1:]))
+			configSpec.NumCPUs = 10
+			_, err = placement.Placement(vmCtx, ctx.Client, ctx.VCClient.Client, ctx.Finder, configSpec, constraints)
+			Expect(err).To(MatchError(ContainSubstring("no zone satisfies")))
+		})
 	})
 
 	Describe("When WorkloadDomainIsolation capability enabled", func() {

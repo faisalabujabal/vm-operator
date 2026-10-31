@@ -390,7 +390,7 @@ func Placement(
 	constraints Constraints) (*Result, error) {
 
 	curResult := doesVMNeedPlacement(vmCtx)
-	if curResult.ZoneName != "" &&
+	if !pkgcfg.FromContext(vmCtx).Features.VMServiceClasslessVM && curResult.ZoneName != "" &&
 		!curResult.needDatastorePlacement &&
 		!curResult.needInstanceStoragePlacement {
 		// VM does not require any type of placement, so we can return early.
@@ -437,6 +437,16 @@ func Placement(
 		}
 
 		candidates = allowedCandidates
+	}
+
+	candidates, err = filterGovernanceCandidates(vmCtx, client, vcClient, vmCtx.VM, configSpec, candidates)
+	if err != nil {
+		return nil, err
+	}
+
+	// A pinned zone must retain an eligible pool, including on creation retries.
+	if curResult.ZoneName != "" && !curResult.needDatastorePlacement && !curResult.needInstanceStoragePlacement {
+		return pinnedGovernanceResult(vmCtx, vcClient, candidates, curResult)
 	}
 
 	recommendation, err := getPlacementRecommendation(
@@ -535,4 +545,39 @@ func getDatastoreProperties(
 	}
 
 	return nil
+}
+
+// pinnedGovernanceResult preserves a selected host only with an eligible pool
+// in that host's cluster. Returning an empty pool would bypass filtering later.
+func pinnedGovernanceResult(
+	ctx context.Context,
+	vcClient *vim25.Client,
+	candidates map[string][]string,
+	result Result) (*Result, error) {
+	for _, poolID := range candidates[result.ZoneName] {
+		pool := vimtypes.ManagedObjectReference{Type: "ResourcePool", Value: poolID}
+		if result.HostMoRef != nil {
+			cluster, err := rpMoIDToCluster(ctx, vcClient, pool)
+			if err != nil {
+				return nil, err
+			}
+			hosts, err := cluster.Hosts(ctx)
+			if err != nil {
+				return nil, err
+			}
+			matched := false
+			for _, host := range hosts {
+				if host.Reference() == *result.HostMoRef {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		result.PoolMoRef = pool
+		return &result, nil
+	}
+	return nil, fmt.Errorf("pinned zone/host has no eligible resource pool: %w", ErrNoPlacementCandidates)
 }

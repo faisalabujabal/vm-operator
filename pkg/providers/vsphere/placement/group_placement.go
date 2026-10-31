@@ -50,6 +50,17 @@ func GroupPlacement(
 		return nil, ErrNoPlacementCandidates
 	}
 
+	if pkgcfg.FromContext(ctx).Features.VMServiceClasslessVM {
+		// A shared group candidate must satisfy every member. Never send a pool
+		// forbidden to one member to DRS merely because it fits another member.
+		for _, mapping := range vmToZoneMappings {
+			candidates, err = filterGovernanceCandidates(ctx, client, vcClient, mapping.VM, mapping.ConfigSpec, candidates)
+			if err != nil {
+				return nil, fmt.Errorf("group member governance: %w", err)
+			}
+		}
+	}
+
 	// Build the mappings sent to PlaceVmsXCluster, where ZoneName is the VM's
 	// candidate zone. A VM's zone must be a key in candidates (zone name to RP
 	// MoIDs).

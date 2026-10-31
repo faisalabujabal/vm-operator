@@ -14,6 +14,7 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
 
+	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
 	pkglog "github.com/vmware-tanzu/vm-operator/pkg/log"
@@ -220,6 +221,8 @@ func PlaceVMForCreate(
 // VMZonePlacementMapping maps a VM's ConfigSpec to the zone it is to be placed in.
 // An empty ZoneName means the VM does not have pinned zone.
 type VMZonePlacementMapping struct {
+	// VM carries class identity and materialized values for governance filtering.
+	VM         *vmopv1.VirtualMachine
 	ConfigSpec vimtypes.VirtualMachineConfigSpec
 	ZoneName   string
 }

@@ -204,8 +204,8 @@ The class APIs, their generation and the namespace-copy integration are provider
 
 ### Story — Zone selection rule (vmop-4333)
 
-- [ ] T407 [US5/US7] [vmop-4333] VM validating webhook: require `spec.zone` when the possible zones don't all have the same governing class, naming the zones and their classes; reject a VM in a zone where its class is `HardwareCompatible=False`, with that zone's reason. Depends on T201 — `webhooks/virtualmachine/validation`
-- [ ] T407a [US5/US7] [vmop-4333] E2E: a VM without a zone is rejected when its zones are governed differently, and a VM in an incompatible zone is rejected
+- [x] T407 [US5/US7] [vmop-4333] VM validating webhook: filter namespace zones using supplied/materialized VM values; require an explicit zone only for unresolved zone-dependent defaults/constraints among survivors; reject zero eligible zones and current class `HardwareCompatible=False` evidence. Use the existing topology zone label and assigned `status.zone`; missing/stale/Unknown hardware evidence is not False. Depends on T201 — `webhooks/virtualmachine/validation`
+- [x] T407a [US5/US7] [vmop-4333] Experimental E2E: omitted X with different governing defaults requires a choice, X=2 and X=6 are admitted, X=10 is rejected, and a VM in a class-incompatible zone is rejected. Written/compiled; live execution pending.
 
 ### Story — Reserved capacity (vmop-4334)
 
@@ -301,3 +301,7 @@ T205a is implemented as experimental live-controller E2E in an isolated Kubernet
 - [ ] T306b [US2] [vmop-4325] Execute the class governance admission E2E on a candidate Supervisor; the scenario is written and compiled but not live-validated
 
 T405/T406: device-memory admission checks inline, class/snapshot and raw presets plus observed attached devices; metadata/status-only and operator writes are exempt. Experimental dry-run Supervisor E2E covers denial, both reservation mechanisms and a fixed legacy device class. Live execution remains pending.
+
+### Value-based zone selection follow-through (vmop-4333)
+
+- [x] T407b [US5] [vmop-4333] Recheck eligible zones/pools before DRS, including final resource values and per-cluster CPU frequency; shared group placement intersects member candidates. Scoped prerequisite slice of T503; full effective-value governance, advanced placement resolution and T504 live placement E2E remain open.

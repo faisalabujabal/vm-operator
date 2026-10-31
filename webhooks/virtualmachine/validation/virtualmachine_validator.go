@@ -167,7 +167,7 @@ var (
 
 // AddToManager adds the webhook to the provided manager.
 func AddToManager(ctx *pkgctx.ControllerManagerContext, mgr ctrlmgr.Manager) error {
-	hook, err := builder.NewValidatingWebhook(ctx, mgr, webHookName, NewValidator(mgr.GetClient()))
+	hook, err := builder.NewValidatingWebhook(ctx, mgr, webHookName, newValidatorWithZoneReader(mgr.GetClient(), mgr.GetAPIReader()))
 	if err != nil {
 		return fmt.Errorf("failed to create VirtualMachine validation webhook: %w", err)
 	}
@@ -178,16 +178,22 @@ func AddToManager(ctx *pkgctx.ControllerManagerContext, mgr ctrlmgr.Manager) err
 
 // NewValidator returns the package's Validator.
 func NewValidator(client ctrlclient.Client) builder.Validator {
+	return newValidatorWithZoneReader(client, client)
+}
+
+func newValidatorWithZoneReader(client ctrlclient.Client, reader ctrlclient.Reader) builder.Validator {
 	return validator{
-		client: client,
+		zoneReader: reader,
+		client:     client,
 		// TODO BMV Use the Context.scheme instead
 		converter: runtime.DefaultUnstructuredConverter,
 	}
 }
 
 type validator struct {
-	client    ctrlclient.Client
-	converter runtime.UnstructuredConverter
+	zoneReader ctrlclient.Reader
+	client     ctrlclient.Client
+	converter  runtime.UnstructuredConverter
 }
 
 // vmFromUnstructured returns the VirtualMachine from the unstructured object.
@@ -222,6 +228,7 @@ func (v validator) ValidateCreate(ctx *pkgctx.WebhookRequestContext) admission.R
 	var errs []error
 
 	fieldErrs = append(fieldErrs, v.validateAvailabilityZone(ctx, vm, nil)...)
+	fieldErrs = append(fieldErrs, v.validateZoneSelection(ctx, vm, nil)...)
 	fieldErrs = append(fieldErrs, v.validateImageOnCreate(ctx, vm)...)
 	fieldErrs = append(fieldErrs, v.validateClassOnCreate(ctx, vm)...)
 	fieldErrs = append(fieldErrs, v.validateStorageFields(ctx, vm)...)
@@ -349,6 +356,7 @@ func (v validator) ValidateUpdate(ctx *pkgctx.WebhookRequestContext) admission.R
 	// of whether the update is allowed or not.
 	fieldErrs = append(fieldErrs, v.validateCrypto(ctx, vm)...)
 	fieldErrs = append(fieldErrs, v.validateAvailabilityZone(ctx, vm, oldVM)...)
+	fieldErrs = append(fieldErrs, v.validateZoneSelection(ctx, vm, oldVM)...)
 	fieldErrs = append(fieldErrs, v.validateBootstrapProviderImmutable(ctx, vm, oldVM)...)
 	fieldErrs = append(fieldErrs, v.validateBootstrap(ctx, vm)...)
 

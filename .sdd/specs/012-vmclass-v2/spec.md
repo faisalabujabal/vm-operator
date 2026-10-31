@@ -100,14 +100,16 @@ Personas are those in [`constitution.md`](../../memory/constitution.md). Everyth
 5. **Given** VM resize (`VMResize` or `VMResizeCPUMemory`) is enabled, **when** `spec.className` changes from `large` to `small`, **then** no annotation is needed: every class-supplied field is replaced from `small`, and fields `small` doesn't set are cleared and re-defaulted from the next source (the governing class, the image, or vpxd).
 6. **Given** a class edit that changes a typed field, **when** the class controller reconciles, **then** the class's `ClassInstance` hash changes, so VMs of the class see the new instance.
 
-### US5 — DevOps user: a VM without a zone gets one only when it is unambiguous (P1)
+### US5 — DevOps user: a VM without a zone is placed only where its configuration fits (P1)
 
 **Acceptance scenarios**:
 
-1. **Given** a VM without `spec.zone` whose possible zones are all governed by the same class, **when** it is created, **then** it is admitted with that class's defaults for unset governed fields.
-2. **Given** a VM without `spec.zone` whose possible zones have different governing classes, or some governed and some not, **when** it is created, **then** it is rejected, naming the zones and their governing classes.
+1. **Given** a VM without an explicit zone, **when** its supplied/materialized values identify eligible zones and remaining governing defaults are unambiguous, **then** automatic placement is allowed among those zones. Different governor identities alone do not require an explicit zone.
+2. **Given** surviving zones whose governors imply different values for unresolved fields, **when** the VM omits a zone, **then** admission requires the user to supply those fields or choose a zone, naming the fields, zones and governors. For example, governor A permits X=2–4 in zone A and governor B permits X=5–8 in zones B/C: omitted X with different defaults requires a choice; X=2 admits A; X=6 admits B/C; X=10 is rejected because no zone qualifies.
 3. **Given** a VM placed in `zone-a`, **when** it is later updated, **then** it is validated against `zone-a` only; it is never moved to another zone.
-4. **Given** a VM without `spec.zone`, **when** it is placed, **then** placement receives only the zones whose governing class admits the VM's values and whose hardware is compatible.
+4. **Given** a VM without an explicit zone, **when** it is placed, **then** placement rechecks current governance and receives only eligible zones/pools. DRS chooses among the surviving candidates; admission does not pin the first match.
+
+The current VM API selects a zone with `metadata.labels["topology.kubernetes.io/zone"]` and records the assigned zone in `status.zone`. References to VM `spec.zone` elsewhere in this design describe that intent; T407 uses the existing API rather than introducing a second selector.
 
 ### US6 — CSP admin: existing VMs that drift out of compliance (P1)
 

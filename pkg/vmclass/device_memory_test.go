@@ -106,7 +106,7 @@ var _ = Describe("Device memory reservation", func() {
 		check(false, instance)
 	})
 	It("does not use a previous class snapshot after a class-name change", func() {
-		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.ImmutableClasses = true })
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.ImmutableClasses = true; c.Features.VMResizeCPUMemory = true })
 		vm.Spec.Class = &common.LocalObjectRef{Name: "old-snapshot"}
 		oldVM = vm.DeepCopy()
 		oldVM.Spec.ClassName = "old-class"
@@ -114,6 +114,30 @@ var _ = Describe("Device memory reservation", func() {
 		check(true)
 	})
 	It("preserves delayed class-copy admission for a class without observed or inline devices", func() { class.Namespace = "other"; check(true) })
+
+	It("rejects removing a materialized memory request on an ordinary update", func() {
+		class.Spec.Resources.Requests.Memory = vmopv1.FixedClassResource(resource.MustParse("2Gi"))
+		vm.Spec.Resources = &vmopv1.VirtualMachineResourcesSpec{Size: &vmopv1.VirtualMachineResourceQuantity{Memory: ptr.To(resource.MustParse("2Gi"))}, Requests: &vmopv1.VirtualMachineResourceQuantity{Memory: ptr.To(resource.MustParse("2Gi"))}}
+		oldVM = vm.DeepCopy()
+		vm.Spec.Resources.Requests = nil
+		check(false)
+	})
+	It("rejects removing a materialized lock on an ordinary update", func() {
+		class.Spec.MemoryAdvanced = &vmopv1.VirtualMachineClassMemoryAdvancedSpec{ReservationLockedToMax: vmopv1.FixedClassBool(true)}
+		vm.Spec.MemoryAdvanced = &vmopv1.VirtualMachineMemoryAdvancedSpec{ReservationLockedToMax: ptr.To(true)}
+		oldVM = vm.DeepCopy()
+		vm.Spec.MemoryAdvanced = nil
+		check(false)
+	})
+	It("inherits memory only for a class change that actually runs defaulting", func() {
+		class.Spec.Resources.Requests.Memory = vmopv1.FixedClassResource(resource.MustParse("2Gi"))
+		oldVM = vm.DeepCopy()
+		oldVM.Spec.ClassName = "previous"
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMResizeCPUMemory = false })
+		check(false)
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMResizeCPUMemory = true })
+		check(true)
+	})
 	It("reports unresolved snapshot errors", func() {
 		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.ImmutableClasses = true })
 		vm.Spec.Class = &common.LocalObjectRef{Name: "missing"}

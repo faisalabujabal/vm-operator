@@ -8,10 +8,12 @@ import (
 	"context"
 	"fmt"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
+	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	"github.com/vmware-tanzu/vm-operator/pkg/util"
 	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
 	vimtypes "github.com/vmware/govmomi/vim25/types"
@@ -65,7 +67,12 @@ func DeviceMemoryReservationSatisfied(ctx context.Context, c ctrlclient.Client, 
 		if !hasDevices {
 			return true, nil
 		}
-		fillDeviceMemoryDefaults(effective, spec, config)
+		// Match ApplyDefaults: ordinary updates retain materialized VM intent.
+		// An omitted request/lock on that path means zero/false, not inheritance.
+		if oldVM == nil || (pkgcfg.FromContext(ctx).Features.VMResizeCPUMemory &&
+			(vm.Spec.ClassName != oldVM.Spec.ClassName || !apiequality.Semantic.DeepEqual(vm.Spec.Class, oldVM.Spec.Class))) {
+			fillDeviceMemoryDefaults(effective, spec, config)
+		}
 	}
 	return !hasDevices || vmopv1util.FullMemReservationSpecMet(effective), nil
 }

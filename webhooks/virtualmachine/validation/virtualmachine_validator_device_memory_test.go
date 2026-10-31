@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
@@ -67,6 +68,30 @@ var _ = Describe("Device memory admission", func() {
 			ctx.vm.Status.Hardware = &vmopv1.VirtualMachineHardwareStatus{VGPUs: []vmopv1.VirtualMachineHardwareVGPUStatus{{}}}
 		}})
 	})
+
+	DescribeTable("rejects removing reservation from a class-backed VM", func(lock bool) {
+		ctx := newUnitTestContextForValidatingWebhook(true)
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+		ctx.IsVMOperatorAccount = false
+		bypassUpgradeCheck(&ctx.Context, ctx.vm, ctx.oldVM)
+		devices := []vmopv1.VGPUDevice{{ProfileName: "gpu"}}
+		class := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: ctx.vm.Spec.ClassName, Namespace: ctx.vm.Namespace}}
+		class.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{Default: &devices}
+		class.Spec.Resources.Size.Memory = vmopv1.FixedClassResource(resource.MustParse("2Gi"))
+		class.Spec.Resources.Requests.Memory = vmopv1.FixedClassResource(resource.MustParse("2Gi"))
+		if lock {
+			class.Spec.MemoryAdvanced = &vmopv1.VirtualMachineClassMemoryAdvancedSpec{ReservationLockedToMax: vmopv1.FixedClassBool(true)}
+		}
+		Expect(ctx.Client.Create(ctx, class)).To(Succeed())
+		ctx.vm.Spec.Resources = &vmopv1.VirtualMachineResourcesSpec{Size: &vmopv1.VirtualMachineResourceQuantity{Memory: ptr.To(resource.MustParse("2Gi"))}}
+		ctx.oldVM.Spec.Resources = ctx.vm.Spec.Resources.DeepCopy()
+		if lock {
+			ctx.oldVM.Spec.MemoryAdvanced = &vmopv1.VirtualMachineMemoryAdvancedSpec{ReservationLockedToMax: ptr.To(true)}
+		} else {
+			ctx.oldVM.Spec.Resources.Requests = &vmopv1.VirtualMachineResourceQuantity{Memory: ptr.To(resource.MustParse("2Gi"))}
+		}
+		doTestWithContext(ctx, testParams{expectAllowed: false, setup: func(_ *unitValidatingWebhookContext) {}, validate: doValidateWithMsg("devices require full guest memory reservation")})
+	}, Entry("request", false), Entry("lock", true))
 	It("names both supported fixes in the rejection", func() {
 		ctx := newUnitTestContextForValidatingWebhook(false)
 		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })

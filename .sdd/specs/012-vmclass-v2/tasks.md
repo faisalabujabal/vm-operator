@@ -161,8 +161,8 @@ The class APIs, their generation and the namespace-copy integration are provider
 
 ### Story — Class mutating webhook (vmop-4324)
 
-- [ ] T300 [US2/US8] [vmop-4324] Fill `governs.enforcement: Deny` and set the memory reservation lock on a preset class that attaches devices; number ranges are not completed — `webhooks/virtualmachineclass/mutation`
-- [ ] T300a [US2/US8] [vmop-4324] E2E: a written governing class reads back with `enforcement: Deny`, and a preset device class with the memory lock set
+- [x] T300 [US2/US8] [vmop-4324] Fill `governs.enforcement: Deny` and set the memory reservation lock on a preset class that attaches devices; number ranges are not completed — `webhooks/virtualmachineclass/mutation`
+- [x] T300a [US2/US8] [vmop-4324] E2E: a written governing class reads back with `enforcement: Deny`, and a preset device class with the memory lock set. Experimental scenario written and compiled; live Supervisor execution remains pending
 
 ### Story — Class validating webhook (vmop-4325)
 

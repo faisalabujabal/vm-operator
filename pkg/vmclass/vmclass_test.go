@@ -6,6 +6,7 @@ package vmclass_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -484,5 +485,67 @@ var _ = Describe("Class configuration hashes", Label(testlabels.API), func() {
 		after, err = vmclass.ConfigurationHash(ctx, spec)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(after).NotTo(Equal(before))
+	})
+})
+
+var _ = Describe("Class admission defaults", Label(testlabels.Mutation, testlabels.API), func() {
+	DescribeTable("locks memory only for effective attaching device presets", func(raw string, locked bool) {
+		var spec vmopv1.VirtualMachineClassSpec
+		Expect(json.Unmarshal([]byte(raw), &spec)).To(Succeed())
+		before := spec.DeepCopy()
+		changed, err := vmclass.ApplyClassDefaults(&spec)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(Equal(locked))
+		if locked {
+			Expect(spec.MemoryAdvanced.ReservationLockedToMax).To(Equal(vmopv1.FixedClassBool(true)))
+		} else {
+			Expect(spec.MemoryAdvanced).To(Equal(before.MemoryAdvanced))
+		}
+		Expect(spec.Hardware).To(Equal(before.Hardware))
+		Expect(spec.Resources).To(Equal(before.Resources))
+		Expect(spec.ConfigSpec).To(Equal(before.ConfigSpec))
+		changed, err = vmclass.ApplyClassDefaults(&spec)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeFalse(), "defaulting must converge")
+	},
+		Entry("no device", `{}`, false),
+		Entry("vgpu preset", `{"hardware":{"devices":{"vgpuDevices":{"default":[{"profileName":"gpu"}]}}}}`, true),
+		Entry("DirectPath preset", `{"hardware":{"devices":{"dynamicDirectPathIODevices":{"default":[{"vendorID":1,"deviceID":2,"count":2}]}}}}`, true),
+		Entry("empty device defaults", `{"hardware":{"devices":{"vgpuDevices":{"default":[]},"dynamicDirectPathIODevices":{"default":[]}}}}`, false),
+		Entry("allowed-only policy", `{"hardware":{"devices":{"vgpuDevices":{"allowed":[{}]},"dynamicDirectPathIODevices":{"denied":[{}]}}}}`, false),
+		Entry("raw config suppresses typed devices", `{"configSpec":{},"hardware":{"devices":{"vgpuDevices":{"default":[{"profileName":"gpu"}]}}}}`, false),
+		Entry("raw added PCI device", `{"configSpec":{"deviceChange":[{"_typeName":"VirtualDeviceConfigSpec","operation":"add","device":{"_typeName":"VirtualPCIPassthrough"}}]}}`, true),
+		Entry("raw removed PCI device", `{"configSpec":{"deviceChange":[{"_typeName":"VirtualDeviceConfigSpec","operation":"remove","device":{"_typeName":"VirtualPCIPassthrough"}}]}}`, false),
+		Entry("raw edited SR-IOV device", `{"configSpec":{"deviceChange":[{"_typeName":"VirtualDeviceConfigSpec","operation":"edit","device":{"_typeName":"VirtualSriovEthernetCard"}}]}}`, true),
+		Entry("raw ordinary NIC", `{"configSpec":{"deviceChange":[{"_typeName":"VirtualDeviceConfigSpec","operation":"add","device":{"_typeName":"VirtualVmxnet3"}}]}}`, false),
+		Entry("replace explicit false without changing resource ranges", `{"hardware":{"devices":{"vgpuDevices":{"default":[{"profileName":"gpu"}]}}},"memoryAdvanced":{"reservationLockedToMax":{"default":false,"allowOverride":true}},"resources":{"requests":{"memory":{"default":"1Gi"}}}}`, true),
+	)
+	It("defaults only omitted governance enforcement", func() {
+		spec := vmopv1.VirtualMachineClassSpec{Governs: &vmopv1.VirtualMachineClassGovernance{Zones: &[]string{}}}
+		changed, err := vmclass.ApplyClassDefaults(&spec)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeTrue())
+		Expect(spec.Governs.Enforcement).To(Equal(vmopv1.VirtualMachineClassEnforcementDeny))
+		Expect(spec.Governs.Zones).To(HaveValue(BeEmpty()))
+		Expect(spec.Governs.ExistingVMs).To(BeEmpty())
+		spec.Governs.Enforcement = "invalid"
+		changed, err = vmclass.ApplyClassDefaults(&spec)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(changed).To(BeFalse(), "invalid explicit policy belongs to validation")
+		Expect(spec.Governs.Enforcement).To(Equal(vmopv1.VirtualMachineClassEnforcement("invalid")))
+	})
+	It("rejects null raw device changes without panicking", func() {
+		spec := vmopv1.VirtualMachineClassSpec{ConfigSpec: []byte(`{"deviceChange":[null]}`)}
+		changed, err := vmclass.ApplyClassDefaults(&spec)
+		Expect(err).To(MatchError(ContainSubstring("read class device presets")))
+		Expect(changed).To(BeFalse())
+	})
+	It("returns malformed raw device data without partially defaulting", func() {
+		spec := vmopv1.VirtualMachineClassSpec{ConfigSpec: []byte(`{"deviceChange":"invalid"}`), Governs: &vmopv1.VirtualMachineClassGovernance{}}
+		before := spec.DeepCopy()
+		changed, err := vmclass.ApplyClassDefaults(&spec)
+		Expect(err).To(MatchError(ContainSubstring("read class device presets")))
+		Expect(changed).To(BeFalse())
+		Expect(spec).To(Equal(*before))
 	})
 })

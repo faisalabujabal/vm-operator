@@ -32,6 +32,28 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /default-mutate-vmoperator-vmware-com-v1alpha6-virtualmachineclass
+  failurePolicy: Fail
+  matchPolicy: Exact
+  name: default.mutating.virtualmachineclass.v1alpha6.vmoperator.vmware.com
+  rules:
+  - apiGroups:
+    - vmoperator.vmware.com
+    apiVersions:
+    - v1alpha6
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - virtualmachineclasses
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /default-mutate-vmoperator-vmware-com-v1alpha6-virtualmachinegroup
   failurePolicy: Fail
   name: default.mutating.virtualmachinegroup.v1alpha6.vmoperator.vmware.com

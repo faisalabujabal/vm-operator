@@ -167,7 +167,7 @@ The class APIs, their generation and the namespace-copy integration are provider
 ### Story — Class validating webhook (vmop-4325)
 
 - [ ] T301 [US1/US2/US9/US12] [vmop-4325] Value-shape rules (T002) not covered by CEL, elevated `configSpec` paths, `externalID` immutable, `existingVMs` required (T003), `parentClassRefs` rejected in Milestone 1; the new class rules are gated on the capability — `webhooks/virtualmachineclass/validation`
-- [ ] T302 [US2] [vmop-4325] One governing class per zone; a selectable class must fit inside the zone's governing class, including `advanced.extraConfig.default` against `allowed`/`denied` — `webhooks/virtualmachineclass/validation`
+- [x] T302 [US2] [vmop-4325] One governing class per zone; a selectable class must fit inside the zone's governing class, including `advanced.extraConfig.default` against `allowed`/`denied` — `webhooks/virtualmachineclass/validation`
 - [ ] T303 [US10] [vmop-4325] A class's default configuration must match its default profile, and every allowed profile must fit within the class's resource and device policy (bounds are not fixed by listing a profile); every name in `reservedProfileName` resolves to a `VirtualMachineReservedProfile` in the namespace; `allowed` is required when `default` is set — `webhooks/virtualmachineclass/validation`
 - [ ] T303a [US10] [vmop-4325] On class update through the v2 path, reject only changes that alter an allocated profile's shape or make the class's default VM invalid for it; tests pin the exact field boundary (T009b) — `webhooks/virtualmachineclass/validation`
 - [ ] T304 [US9] [vmop-4325] Sticky v2 writes: reject a write through a CRD version older than the class's last-writer label
@@ -290,3 +290,9 @@ Dependency tasks; vm-operator does not implement them. What vm-operator assumes 
 - [x] T103g5 [US1/US4/US9] [vmop-4315] Run advanced conversion, admission, provider and CEL checks; compile new-VM and staged-upgrade E2E assertions (`api/test/v1alpha5/conversion_test.go`, `pkg/vmclass/vmclass_test.go`, `webhooks/virtualmachineclass/validation/virtualmachineclass_validator_intg_test.go`, `test/e2e/vmservice/vmservice/virtualmachine/virtualmachinelcm.go`, `test/e2e/vmservice/vmservice/virtualmachine/vmclass_schema_upgrade.go`). Live E2E execution is deferred.
 
 T205a is implemented as experimental live-controller E2E in an isolated Kubernetes namespace, using explicit test zone availability. It is written and compile checked; live Supervisor execution remains pending. T205 builds on typed hashes introduced by the schema drafts, centralizes them in `pkg/vmclass`, and verifies that governance metadata does not rotate VM configuration snapshots.
+
+### Scoped class validation progress (vmop-4325)
+
+- [x] T301a [US2/US12] [vmop-4325] Require `governs.existingVMs` on top-level classes behind the live capability, preserving metadata-only and deletion housekeeping after drift
+- [x] T306a [US2/US12] [vmop-4325] Test typed class governance create/update, prospective zone conflicts, pre-existing ambiguity, namespace/deletion isolation, live gate changes and API-reader failures; extend experimental narrowing E2E with duplicate-governor, out-of-ceiling and missing-policy rejection
+- [ ] T306b [US2] [vmop-4325] Execute the class governance admission E2E on a candidate Supervisor; the scenario is written and compiled but not live-validated

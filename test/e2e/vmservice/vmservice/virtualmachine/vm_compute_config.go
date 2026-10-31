@@ -499,6 +499,92 @@ func VMComputeConfigSpec(ctx context.Context, inputGetter func() VMComputeConfig
 				vmNamespace, vmName, string(vmopv1.VirtualMachinePowerStateOn))
 		})
 
+	It("refreshes same-class defaults only after an explicit resize request",
+		Label("core-functional", "experimental"), func() {
+			class := &vmopv1.VirtualMachineClass{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cc-same-class-" + capiutil.RandomString(4), Namespace: vmNamespace,
+				},
+				Spec: vmopv1.VirtualMachineClassSpec{
+					Resources: vmopv1.VirtualMachineClassResources{Size: vmopv1.VirtualMachineClassResourceSpec{
+						CPU:    vmopv1.FixedClassResource(resource.MustParse("2")),
+						Memory: vmopv1.FixedClassResource(resource.MustParse("2Gi")),
+					}},
+					CPUAdvanced: &vmopv1.VirtualMachineClassCPUAdvancedSpec{
+						HotAddEnabled: vmopv1.FixedClassBool(true),
+					},
+				},
+			}
+			Expect(svClusterClient.Create(ctx, class)).To(Succeed())
+			DeferCleanup(func(cleanupCtx context.Context) {
+				Expect(svClusterClient.Delete(cleanupCtx, class)).To(Succeed())
+			})
+			vm := buildComputeConfigVM("cc-same-resize-"+capiutil.RandomString(4),
+				vmNamespace, class.Name, linuxVMIName, storageClass, nil, nil, nil)
+			vm.Spec.PowerState = vmopv1.VirtualMachinePowerStateOff
+			vmoperator.CreateVirtualMachine(ctx, config, clusterProxy, vm, input.SkipCleanup)
+			vmoperator.WaitForVirtualMachineConditionCreated(ctx, config, svClusterClient, vmNamespace, vm.Name)
+			key := ctrlclient.ObjectKeyFromObject(vm)
+			waitForClassConfigSynced(ctx, svClusterClient, config, key)
+
+			By("verifying the original class defaults in the VM spec and realized hardware")
+			Eventually(func(g Gomega) {
+				g.Expect(svClusterClient.Get(ctx, key, vm)).To(Succeed())
+				g.Expect(vm.Spec.Resources).ToNot(BeNil())
+				g.Expect(vm.Spec.Resources.Size).ToNot(BeNil())
+				g.Expect(vm.Spec.Resources.Size.CPU).ToNot(BeNil())
+				g.Expect(vm.Spec.Resources.Size.CPU.Value()).To(Equal(int64(2)))
+				g.Expect(vm.Spec.CPUAdvanced).ToNot(BeNil())
+				g.Expect(vm.Spec.CPUAdvanced.HotAddEnabled).To(HaveValue(BeTrue()))
+				g.Expect(statusCPU(vm)).ToNot(BeNil())
+				g.Expect(statusCPU(vm).Total).To(BeEquivalentTo(2))
+				g.Expect(statusCPU(vm).HotAddEnabled).To(HaveValue(BeTrue()))
+			}, config.GetIntervals("default", "wait-virtual-machine-resize")...).Should(Succeed())
+
+			By("changing CPU size and removing the class hot-add default")
+			Eventually(func(g Gomega) {
+				g.Expect(svClusterClient.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class)).To(Succeed())
+				class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("4"))
+				class.Spec.CPUAdvanced = nil
+				g.Expect(svClusterClient.Update(ctx, class)).To(Succeed())
+			}, config.GetIntervals("default", "wait-virtual-machine-resize")...).Should(Succeed())
+
+			By("retaining the materialized values without a same-class resize request")
+			Consistently(func(g Gomega) {
+				g.Expect(svClusterClient.Get(ctx, key, vm)).To(Succeed())
+				g.Expect(vm.Spec.Resources.Size.CPU.Value()).To(Equal(int64(2)))
+				g.Expect(vm.Spec.CPUAdvanced).ToNot(BeNil())
+				g.Expect(vm.Spec.CPUAdvanced.HotAddEnabled).To(HaveValue(BeTrue()))
+				g.Expect(statusCPU(vm)).ToNot(BeNil())
+				g.Expect(statusCPU(vm).Total).To(BeEquivalentTo(2))
+				g.Expect(statusCPU(vm).HotAddEnabled).To(HaveValue(BeTrue()))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By("requesting same-class resize without changing className")
+			Eventually(func(g Gomega) {
+				g.Expect(svClusterClient.Get(ctx, key, vm)).To(Succeed())
+				patch := ctrlclient.MergeFrom(vm.DeepCopy())
+				if vm.Annotations == nil {
+					vm.Annotations = map[string]string{}
+				}
+				vm.Annotations[vmopv1.VirtualMachineSameVMClassResizeAnnotation] = ""
+				g.Expect(svClusterClient.Patch(ctx, vm, patch)).To(Succeed())
+			}, config.GetIntervals("default", "wait-virtual-machine-resize")...).Should(Succeed())
+
+			By("refreshing CPU size and resetting the removed hot-add default")
+			Eventually(func(g Gomega) {
+				g.Expect(svClusterClient.Get(ctx, key, vm)).To(Succeed())
+				g.Expect(vm.Spec.ClassName).To(Equal(class.Name))
+				g.Expect(vm.Spec.Resources.Size.CPU.Value()).To(Equal(int64(4)))
+				if vm.Spec.CPUAdvanced != nil {
+					g.Expect(vm.Spec.CPUAdvanced.HotAddEnabled).To(BeNil())
+				}
+				g.Expect(statusCPU(vm)).ToNot(BeNil())
+				g.Expect(statusCPU(vm).Total).To(BeEquivalentTo(4))
+				g.Expect(statusCPU(vm).HotAddEnabled).To(HaveValue(BeFalse()))
+			}, config.GetIntervals("default", "wait-virtual-machine-resize")...).Should(Succeed())
+		})
+
 	It("resizes via VMClass and applies spec compute overlay while powered off",
 		Label("core-functional", "experimental"), func() {
 

@@ -27,6 +27,7 @@ import (
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	topologyv1 "github.com/vmware-tanzu/vm-operator/external/tanzu-topology/api/v1alpha1"
+	vimv1 "github.com/vmware-tanzu/vm-operator/external/vim/api/v1alpha1"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	pkgconst "github.com/vmware-tanzu/vm-operator/pkg/constants"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
@@ -53,7 +54,7 @@ func AddToManager(ctx *pkgctx.ControllerManagerContext, mgr manager.Manager) err
 		record.New(mgr.GetEventRecorder(controllerNameShort)),
 	)
 
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(controlledType).
 		Watches(controlledType, handler.EnqueueRequestsFromMapFunc(r.classesForDependency), builder.WithPredicates(predicate.Funcs{
 			UpdateFunc: func(e event.UpdateEvent) bool {
@@ -64,8 +65,15 @@ func AddToManager(ctx *pkgctx.ControllerManagerContext, mgr manager.Manager) err
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: ctx.GetMaxConcurrentReconciles(controllerNameShort, 1),
 			LogConstructor:          pkglog.ControllerLogConstructor(controllerNameShort, controlledType, mgr.GetScheme()),
-		}).
-		Complete(r)
+		})
+	// Discovery types/controllers are registered at manager startup only when
+	// the shared capability is enabled. Do not start unavailable informers.
+	if pkgcfg.FromContext(ctx).Features.VMServiceClasslessVM {
+		b = b.Watches(&vimv1.ConfigTarget{}, handler.EnqueueRequestsFromMapFunc(r.classesForHardware)).
+			Watches(&vimv1.VirtualMachineConfigOptions{}, handler.EnqueueRequestsFromMapFunc(r.classesForHardware)).
+			Watches(&vimv1.VirtualMachineGuestOptions{}, handler.EnqueueRequestsFromMapFunc(r.classesForHardware))
+	}
+	return b.Complete(r)
 }
 
 func NewReconciler(
@@ -323,5 +331,58 @@ func (r *Reconciler) reconcileGovernance(ctx *pkgctx.VirtualMachineClassContext)
 		}
 	}
 	ctx.VMClass.Status = governance.ClassStatus(ctx.VMClass, classes.Items, names)
+	return r.reconcileHardware(ctx, zones.Items)
+}
+
+// classesForHardware includes status-only updates: discovery refreshes do not
+// change generation. Fan out to classes in every namespace, including system
+// classes. Periodic reconciliation recovers from dropped events/list errors.
+func (r *Reconciler) classesForHardware(ctx context.Context, _ client.Object) []reconcile.Request {
+	if !pkgcfg.FromContext(r.Context).Features.VMServiceClasslessVM {
+		return nil
+	}
+	var classes vmopv1.VirtualMachineClassList
+	if err := r.List(ctx, &classes); err != nil {
+		r.Logger.Error(err, "list classes for hardware discovery")
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(classes.Items))
+	for i := range classes.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&classes.Items[i])})
+	}
+	return requests
+}
+
+func (r *Reconciler) reconcileHardware(ctx *pkgctx.VirtualMachineClassContext, zones []topologyv1.Zone) error {
+	if len(ctx.VMClass.Status.Zones) == 0 {
+		return nil
+	}
+	var targets vimv1.ConfigTargetList
+	var options vimv1.VirtualMachineConfigOptionsList
+	var guests vimv1.VirtualMachineGuestOptionsList
+	for _, list := range []client.ObjectList{&targets, &options, &guests} {
+		if err := r.List(ctx, list); err != nil {
+			return fmt.Errorf("list class hardware discovery: %w", err)
+		}
+	}
+	for i := range ctx.VMClass.Status.Zones {
+		status := &ctx.VMClass.Status.Zones[i]
+		ids := map[string]bool{}
+		for _, zone := range zones {
+			if zone.Name != status.Name || !zone.DeletionTimestamp.IsZero() {
+				continue
+			}
+			for _, id := range zone.Spec.ManagedVMs.ClusterMoIDs {
+				if id != "" {
+					ids[id] = true
+				}
+			}
+		}
+		clusterIDs := make([]string, 0, len(ids))
+		for id := range ids {
+			clusterIDs = append(clusterIDs, id)
+		}
+		apimeta.SetStatusCondition(&status.Conditions, vmclass.HardwareCompatibility(ctx.VMClass, clusterIDs, targets.Items, options.Items, guests.Items))
+	}
 	return nil
 }

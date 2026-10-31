@@ -19,6 +19,7 @@ import (
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	"github.com/vmware-tanzu/vm-operator/controllers/virtualmachineclass"
 	topologyv1 "github.com/vmware-tanzu/vm-operator/external/tanzu-topology/api/v1alpha1"
+	vimv1 "github.com/vmware-tanzu/vm-operator/external/vim/api/v1alpha1"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
@@ -30,6 +31,7 @@ var _ = Describe("Class governance reconciliation", Label(testlabels.Controller)
 		scheme := runtime.NewScheme()
 		Expect(vmopv1.AddToScheme(scheme)).To(Succeed())
 		Expect(topologyv1.AddToScheme(scheme)).To(Succeed())
+		Expect(vimv1.AddToScheme(scheme)).To(Succeed())
 		ceiling := &vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "ceiling", Namespace: "tenant"}, Spec: vmopv1.VirtualMachineClassSpec{Governs: &vmopv1.VirtualMachineClassGovernance{}, Resources: vmopv1.VirtualMachineClassResources{Size: vmopv1.VirtualMachineClassResourceSpec{CPU: &vmopv1.ResourceQuantityRange{Min: ptr.To(resource.MustParse("1")), Max: ptr.To(resource.MustParse("8")), Default: ptr.To(resource.MustParse("2"))}}}}}
 		class := ceiling.DeepCopy()
 		class.Name = "selectable"

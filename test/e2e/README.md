@@ -360,3 +360,5 @@ The experimental `VM-CLASS-DEVICE-CONVERSION` test exercises the served device-p
 `VM-CLASS-GOVERNANCE` contains experimental served-API governance coverage, including explicit empty zone selections through older clients. Run with `TEST_FOCUS=VM-CLASS-GOVERNANCE` and an explicit experimental label selection on a classless-capability Supervisor.
 
 The governance drift/mirror scenario creates an isolated Kubernetes namespace and a synthetic Zone without infrastructure IDs. It narrows a governing CPU range, checks selectable-class drift without spec mutation, and checks mirror cleanup after deletion. It does not validate placement or hardware compatibility. Live execution is still pending.
+
+`VM-DEVICE-MEMORY` checks passthrough memory reservation through dry-run VM creates and a temporary v1alpha5 fixed device class. It requires the classless capability and the suite Linux VM/image fixture, but does not allocate GPU hardware. Live Supervisor execution remains pending.

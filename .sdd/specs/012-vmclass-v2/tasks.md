@@ -196,8 +196,8 @@ The class APIs, their generation and the namespace-copy integration are provider
 
 ### Story — Device memory reservation (vmop-4332)
 
-- [ ] T405 [US8] [vmop-4332] VM validating webhook: memory fully reserved when the effective configuration has a vGPU or DirectPath I/O device (create, and spec changes while attached; not metadata, status or vm-operator writes) — `webhooks/virtualmachine/validation`
-- [ ] T406 [US8] [vmop-4332] E2E: a device VM without full reservation is rejected; a VM of a fixed v1 class is unaffected
+- [x] T405 [US8] [vmop-4332] VM validating webhook: memory fully reserved when the effective configuration has a vGPU or DirectPath I/O device (create, and spec changes while attached; not metadata, status or vm-operator writes) — `webhooks/virtualmachine/validation`
+- [x] T406 [US8] [vmop-4332] E2E: a device VM without full reservation is rejected; a VM of a fixed v1 class is unaffected
 
 ### Story — Zone selection rule (vmop-4333)
 
@@ -290,3 +290,5 @@ Dependency tasks; vm-operator does not implement them. What vm-operator assumes 
 - [x] T103g5 [US1/US4/US9] [vmop-4315] Run advanced conversion, admission, provider and CEL checks; compile new-VM and staged-upgrade E2E assertions (`api/test/v1alpha5/conversion_test.go`, `pkg/vmclass/vmclass_test.go`, `webhooks/virtualmachineclass/validation/virtualmachineclass_validator_intg_test.go`, `test/e2e/vmservice/vmservice/virtualmachine/virtualmachinelcm.go`, `test/e2e/vmservice/vmservice/virtualmachine/vmclass_schema_upgrade.go`). Live E2E execution is deferred.
 
 T205a is implemented as experimental live-controller E2E in an isolated Kubernetes namespace, using explicit test zone availability. It is written and compile checked; live Supervisor execution remains pending. T205 builds on typed hashes introduced by the schema drafts, centralizes them in `pkg/vmclass`, and verifies that governance metadata does not rotate VM configuration snapshots.
+
+T405/T406: device-memory admission checks inline, class/snapshot and raw presets plus observed attached devices; metadata/status-only and operator writes are exempt. Experimental dry-run Supervisor E2E covers denial, both reservation mechanisms and a fixed legacy device class. Live execution remains pending.

@@ -2478,6 +2478,939 @@ spec:
                       description: Name identifies the zone.
                       minLength: 1
                       type: string
+                    resolvedLimits:
+                      description: ResolvedLimits reports per-field policy restrictions
+                        and hardware choices.
+                      items:
+                        description: |-
+                          VirtualMachineClassResolvedField describes one field's marginal domain in a
+                          zone. Choices from different fields do not promise a jointly placeable VM.
+                        properties:
+                          available:
+                            description: |-
+                              Available contains hardware choices within Policy. It is absent when
+                              State is Unknown. An empty typed domain means no choices are available.
+                            properties:
+                              boolean:
+                                description: Boolean contains permitted boolean values.
+                                properties:
+                                  values:
+                                    description: Values contains the permitted values;
+                                      empty means none.
+                                    items:
+                                      type: boolean
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                type: object
+                              directPath:
+                                description: DirectPath describes Dynamic DirectPath
+                                  identities and display information.
+                                properties:
+                                  allowed:
+                                    description: Allowed requires matching at least
+                                      one matcher in every group.
+                                    items:
+                                      description: VirtualMachineClassDirectPathMatcherGroup
+                                        is one disjunction of PCI matchers.
+                                      properties:
+                                        matchers:
+                                          description: Matchers contains alternatives
+                                            within this group.
+                                          items:
+                                            description: VirtualMachineClassResolvedDirectPathMatcher
+                                              describes a PCI identity constraint.
+                                            properties:
+                                              customLabel:
+                                                description: CustomLabel matches a
+                                                  backing label; absence matches every
+                                                  label.
+                                                properties:
+                                                  fixed:
+                                                    description: Fixed matches a literal
+                                                      value.
+                                                    type: string
+                                                  glob:
+                                                    description: Glob matches a shell-style
+                                                      glob.
+                                                    type: string
+                                                  regex:
+                                                    description: Regex matches a regular
+                                                      expression.
+                                                    type: string
+                                                type: object
+                                              deviceID:
+                                                description: DeviceID matches the
+                                                  PCI device model; absence matches
+                                                  every model.
+                                                format: int64
+                                                type: integer
+                                              vendorID:
+                                                description: VendorID matches the
+                                                  PCI vendor; absence matches every
+                                                  vendor.
+                                                format: int64
+                                                type: integer
+                                            type: object
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  denied:
+                                    description: Denied rejects matching identities.
+                                    items:
+                                      description: VirtualMachineClassResolvedDirectPathMatcher
+                                        describes a PCI identity constraint.
+                                      properties:
+                                        customLabel:
+                                          description: CustomLabel matches a backing
+                                            label; absence matches every label.
+                                          properties:
+                                            fixed:
+                                              description: Fixed matches a literal
+                                                value.
+                                              type: string
+                                            glob:
+                                              description: Glob matches a shell-style
+                                                glob.
+                                              type: string
+                                            regex:
+                                              description: Regex matches a regular
+                                                expression.
+                                              type: string
+                                          type: object
+                                        deviceID:
+                                          description: DeviceID matches the PCI device
+                                            model; absence matches every model.
+                                          format: int64
+                                          type: integer
+                                        vendorID:
+                                          description: VendorID matches the PCI vendor;
+                                            absence matches every vendor.
+                                          format: int64
+                                          type: integer
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  values:
+                                    description: Values contains discovered and permitted
+                                      identities.
+                                    items:
+                                      description: VirtualMachineClassResolvedDirectPath
+                                        exposes PCI identity and display data.
+                                      properties:
+                                        customLabel:
+                                          description: CustomLabel identifies the
+                                            device backing label.
+                                          type: string
+                                        deviceID:
+                                          description: DeviceID identifies the PCI
+                                            device model.
+                                          format: int64
+                                          type: integer
+                                        deviceName:
+                                          description: DeviceName is the display name
+                                            of the device model.
+                                          type: string
+                                        vendorID:
+                                          description: VendorID identifies the PCI
+                                            vendor.
+                                          format: int64
+                                          type: integer
+                                        vendorName:
+                                          description: VendorName is the display name
+                                            of the vendor.
+                                          type: string
+                                      required:
+                                      - deviceID
+                                      - vendorID
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                type: object
+                              extraConfig:
+                                description: ExtraConfig describes effective VMX key
+                                  constraints.
+                                properties:
+                                  allowed:
+                                    description: |-
+                                      Allowed requires a key to match at least one matcher in every group.
+                                      No groups means unrestricted; an empty group allows no keys.
+                                    items:
+                                      description: VirtualMachineClassExtraConfigMatcherGroup
+                                        is one disjunction of matchers.
+                                      properties:
+                                        matchers:
+                                          description: Matchers contains alternatives
+                                            within this group.
+                                          items:
+                                            description: VirtualMachineClassResolvedExtraConfigMatcher
+                                              describes a VMX key constraint.
+                                            properties:
+                                              key:
+                                                description: Key matches a VMX key;
+                                                  absence matches every key.
+                                                properties:
+                                                  fixed:
+                                                    description: Fixed matches a literal
+                                                      value.
+                                                    type: string
+                                                  glob:
+                                                    description: Glob matches a shell-style
+                                                      glob.
+                                                    type: string
+                                                  regex:
+                                                    description: Regex matches a regular
+                                                      expression.
+                                                    type: string
+                                                type: object
+                                            type: object
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  denied:
+                                    description: Denied rejects matching keys even
+                                      when allowed.
+                                    items:
+                                      description: VirtualMachineClassResolvedExtraConfigMatcher
+                                        describes a VMX key constraint.
+                                      properties:
+                                        key:
+                                          description: Key matches a VMX key; absence
+                                            matches every key.
+                                          properties:
+                                            fixed:
+                                              description: Fixed matches a literal
+                                                value.
+                                              type: string
+                                            glob:
+                                              description: Glob matches a shell-style
+                                                glob.
+                                              type: string
+                                            regex:
+                                              description: Regex matches a regular
+                                                expression.
+                                              type: string
+                                          type: object
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                type: object
+                              integer:
+                                description: Integer describes integral values in
+                                  the field's documented units.
+                                properties:
+                                  ranges:
+                                    description: Ranges contains inclusive intervals.
+                                    items:
+                                      description: VirtualMachineClassResolvedIntegerRange
+                                        contains inclusive integer bounds.
+                                      properties:
+                                        max:
+                                          description: Max is the upper bound, or
+                                            absent when unbounded.
+                                          format: int64
+                                          type: integer
+                                        min:
+                                          description: Min is the lower bound, or
+                                            absent when unbounded.
+                                          format: int64
+                                          type: integer
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  values:
+                                    description: Values contains exact permitted values.
+                                    items:
+                                      format: int64
+                                      type: integer
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                type: object
+                              quantity:
+                                description: Quantity describes CPU quantities or
+                                  memory bytes.
+                                properties:
+                                  ranges:
+                                    description: Ranges contains inclusive intervals,
+                                      without filling gaps between them.
+                                    items:
+                                      description: VirtualMachineClassResolvedQuantityRange
+                                        contains inclusive quantity bounds.
+                                      properties:
+                                        max:
+                                          anyOf:
+                                          - type: integer
+                                          - type: string
+                                          description: Max is the upper bound, or
+                                            absent when unbounded.
+                                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                          x-kubernetes-int-or-string: true
+                                        min:
+                                          anyOf:
+                                          - type: integer
+                                          - type: string
+                                          description: Min is the lower bound, or
+                                            absent when unbounded.
+                                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                          x-kubernetes-int-or-string: true
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  values:
+                                    description: Values contains exact permitted values,
+                                      including noncontiguous CPU counts.
+                                    items:
+                                      anyOf:
+                                      - type: integer
+                                      - type: string
+                                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                      x-kubernetes-int-or-string: true
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                type: object
+                              set:
+                                description: Set describes whole integer sets or the
+                                  domain of their members.
+                                properties:
+                                  members:
+                                    description: Members contains valid member IDs
+                                      when known; nil means unknown.
+                                    items:
+                                      format: int32
+                                      type: integer
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                  required:
+                                    description: Required rejects the empty set.
+                                    type: boolean
+                                  sets:
+                                    description: Sets contains approved whole sets,
+                                      never an intersection of their members.
+                                    items:
+                                      description: Int32Set contains one approved
+                                        set of integer members.
+                                      properties:
+                                        members:
+                                          description: Members describes the set,
+                                            with ordering ignored.
+                                          items:
+                                            format: int32
+                                            minimum: 0
+                                            type: integer
+                                          type: array
+                                          x-kubernetes-list-type: set
+                                      required:
+                                      - members
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  unrestricted:
+                                    description: Unrestricted means Sets does not
+                                      restrict the choice of whole sets.
+                                    type: boolean
+                                type: object
+                              string:
+                                description: String contains permitted scalar strings.
+                                properties:
+                                  required:
+                                    description: Required rejects an empty value.
+                                    type: boolean
+                                  unrestricted:
+                                    description: Unrestricted means Values does not
+                                      restrict the string domain.
+                                    type: boolean
+                                  values:
+                                    description: Values contains permitted strings;
+                                      empty means none unless unrestricted.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                type: object
+                              vgpu:
+                                description: VGPU describes vGPU profile identities
+                                  and their display information.
+                                properties:
+                                  allowed:
+                                    description: Allowed requires matching at least
+                                      one matcher in every group.
+                                    items:
+                                      description: VirtualMachineClassVGPUMatcherGroup
+                                        is one disjunction of vGPU matchers.
+                                      properties:
+                                        matchers:
+                                          description: Matchers contains alternatives
+                                            within this group.
+                                          items:
+                                            description: VirtualMachineClassResolvedVGPUMatcher
+                                              describes a profile identity constraint.
+                                            properties:
+                                              profileName:
+                                                description: ProfileName matches a
+                                                  profile name; absence matches every
+                                                  profile.
+                                                properties:
+                                                  fixed:
+                                                    description: Fixed matches a literal
+                                                      value.
+                                                    type: string
+                                                  glob:
+                                                    description: Glob matches a shell-style
+                                                      glob.
+                                                    type: string
+                                                  regex:
+                                                    description: Regex matches a regular
+                                                      expression.
+                                                    type: string
+                                                type: object
+                                            type: object
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  denied:
+                                    description: Denied rejects matching identities.
+                                    items:
+                                      description: VirtualMachineClassResolvedVGPUMatcher
+                                        describes a profile identity constraint.
+                                      properties:
+                                        profileName:
+                                          description: ProfileName matches a profile
+                                            name; absence matches every profile.
+                                          properties:
+                                            fixed:
+                                              description: Fixed matches a literal
+                                                value.
+                                              type: string
+                                            glob:
+                                              description: Glob matches a shell-style
+                                                glob.
+                                              type: string
+                                            regex:
+                                              description: Regex matches a regular
+                                                expression.
+                                              type: string
+                                          type: object
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  values:
+                                    description: Values contains discovered and permitted
+                                      profiles.
+                                    items:
+                                      description: VirtualMachineClassResolvedVGPU
+                                        exposes only profile identity and display
+                                        data.
+                                      properties:
+                                        deviceVendorID:
+                                          description: DeviceVendorID identifies the
+                                            supporting PCI model, not a host or device
+                                            instance.
+                                          format: int64
+                                          type: integer
+                                        fbSizeInGiB:
+                                          description: FBSizeInGiB is the framebuffer
+                                            size per VM, in gibibytes.
+                                          format: int64
+                                          type: integer
+                                        profileClass:
+                                          description: ProfileClass describes the
+                                            profile class.
+                                          type: string
+                                        profileName:
+                                          description: ProfileName identifies the
+                                            profile.
+                                          type: string
+                                        profileSharing:
+                                          description: ProfileSharing describes profile
+                                            sharing behavior.
+                                          type: string
+                                      required:
+                                      - profileName
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                type: object
+                            type: object
+                          path:
+                            description: Path is the field path relative to the class
+                              spec.
+                            type: string
+                          policy:
+                            description: |-
+                              Policy contains the effective class and governance restrictions, without
+                              defaults. These restrictions alone do not establish hardware support.
+                            properties:
+                              boolean:
+                                description: Boolean contains permitted boolean values.
+                                properties:
+                                  values:
+                                    description: Values contains the permitted values;
+                                      empty means none.
+                                    items:
+                                      type: boolean
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                type: object
+                              directPath:
+                                description: DirectPath describes Dynamic DirectPath
+                                  identities and display information.
+                                properties:
+                                  allowed:
+                                    description: Allowed requires matching at least
+                                      one matcher in every group.
+                                    items:
+                                      description: VirtualMachineClassDirectPathMatcherGroup
+                                        is one disjunction of PCI matchers.
+                                      properties:
+                                        matchers:
+                                          description: Matchers contains alternatives
+                                            within this group.
+                                          items:
+                                            description: VirtualMachineClassResolvedDirectPathMatcher
+                                              describes a PCI identity constraint.
+                                            properties:
+                                              customLabel:
+                                                description: CustomLabel matches a
+                                                  backing label; absence matches every
+                                                  label.
+                                                properties:
+                                                  fixed:
+                                                    description: Fixed matches a literal
+                                                      value.
+                                                    type: string
+                                                  glob:
+                                                    description: Glob matches a shell-style
+                                                      glob.
+                                                    type: string
+                                                  regex:
+                                                    description: Regex matches a regular
+                                                      expression.
+                                                    type: string
+                                                type: object
+                                              deviceID:
+                                                description: DeviceID matches the
+                                                  PCI device model; absence matches
+                                                  every model.
+                                                format: int64
+                                                type: integer
+                                              vendorID:
+                                                description: VendorID matches the
+                                                  PCI vendor; absence matches every
+                                                  vendor.
+                                                format: int64
+                                                type: integer
+                                            type: object
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  denied:
+                                    description: Denied rejects matching identities.
+                                    items:
+                                      description: VirtualMachineClassResolvedDirectPathMatcher
+                                        describes a PCI identity constraint.
+                                      properties:
+                                        customLabel:
+                                          description: CustomLabel matches a backing
+                                            label; absence matches every label.
+                                          properties:
+                                            fixed:
+                                              description: Fixed matches a literal
+                                                value.
+                                              type: string
+                                            glob:
+                                              description: Glob matches a shell-style
+                                                glob.
+                                              type: string
+                                            regex:
+                                              description: Regex matches a regular
+                                                expression.
+                                              type: string
+                                          type: object
+                                        deviceID:
+                                          description: DeviceID matches the PCI device
+                                            model; absence matches every model.
+                                          format: int64
+                                          type: integer
+                                        vendorID:
+                                          description: VendorID matches the PCI vendor;
+                                            absence matches every vendor.
+                                          format: int64
+                                          type: integer
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  values:
+                                    description: Values contains discovered and permitted
+                                      identities.
+                                    items:
+                                      description: VirtualMachineClassResolvedDirectPath
+                                        exposes PCI identity and display data.
+                                      properties:
+                                        customLabel:
+                                          description: CustomLabel identifies the
+                                            device backing label.
+                                          type: string
+                                        deviceID:
+                                          description: DeviceID identifies the PCI
+                                            device model.
+                                          format: int64
+                                          type: integer
+                                        deviceName:
+                                          description: DeviceName is the display name
+                                            of the device model.
+                                          type: string
+                                        vendorID:
+                                          description: VendorID identifies the PCI
+                                            vendor.
+                                          format: int64
+                                          type: integer
+                                        vendorName:
+                                          description: VendorName is the display name
+                                            of the vendor.
+                                          type: string
+                                      required:
+                                      - deviceID
+                                      - vendorID
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                type: object
+                              extraConfig:
+                                description: ExtraConfig describes effective VMX key
+                                  constraints.
+                                properties:
+                                  allowed:
+                                    description: |-
+                                      Allowed requires a key to match at least one matcher in every group.
+                                      No groups means unrestricted; an empty group allows no keys.
+                                    items:
+                                      description: VirtualMachineClassExtraConfigMatcherGroup
+                                        is one disjunction of matchers.
+                                      properties:
+                                        matchers:
+                                          description: Matchers contains alternatives
+                                            within this group.
+                                          items:
+                                            description: VirtualMachineClassResolvedExtraConfigMatcher
+                                              describes a VMX key constraint.
+                                            properties:
+                                              key:
+                                                description: Key matches a VMX key;
+                                                  absence matches every key.
+                                                properties:
+                                                  fixed:
+                                                    description: Fixed matches a literal
+                                                      value.
+                                                    type: string
+                                                  glob:
+                                                    description: Glob matches a shell-style
+                                                      glob.
+                                                    type: string
+                                                  regex:
+                                                    description: Regex matches a regular
+                                                      expression.
+                                                    type: string
+                                                type: object
+                                            type: object
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  denied:
+                                    description: Denied rejects matching keys even
+                                      when allowed.
+                                    items:
+                                      description: VirtualMachineClassResolvedExtraConfigMatcher
+                                        describes a VMX key constraint.
+                                      properties:
+                                        key:
+                                          description: Key matches a VMX key; absence
+                                            matches every key.
+                                          properties:
+                                            fixed:
+                                              description: Fixed matches a literal
+                                                value.
+                                              type: string
+                                            glob:
+                                              description: Glob matches a shell-style
+                                                glob.
+                                              type: string
+                                            regex:
+                                              description: Regex matches a regular
+                                                expression.
+                                              type: string
+                                          type: object
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                type: object
+                              integer:
+                                description: Integer describes integral values in
+                                  the field's documented units.
+                                properties:
+                                  ranges:
+                                    description: Ranges contains inclusive intervals.
+                                    items:
+                                      description: VirtualMachineClassResolvedIntegerRange
+                                        contains inclusive integer bounds.
+                                      properties:
+                                        max:
+                                          description: Max is the upper bound, or
+                                            absent when unbounded.
+                                          format: int64
+                                          type: integer
+                                        min:
+                                          description: Min is the lower bound, or
+                                            absent when unbounded.
+                                          format: int64
+                                          type: integer
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  values:
+                                    description: Values contains exact permitted values.
+                                    items:
+                                      format: int64
+                                      type: integer
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                type: object
+                              quantity:
+                                description: Quantity describes CPU quantities or
+                                  memory bytes.
+                                properties:
+                                  ranges:
+                                    description: Ranges contains inclusive intervals,
+                                      without filling gaps between them.
+                                    items:
+                                      description: VirtualMachineClassResolvedQuantityRange
+                                        contains inclusive quantity bounds.
+                                      properties:
+                                        max:
+                                          anyOf:
+                                          - type: integer
+                                          - type: string
+                                          description: Max is the upper bound, or
+                                            absent when unbounded.
+                                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                          x-kubernetes-int-or-string: true
+                                        min:
+                                          anyOf:
+                                          - type: integer
+                                          - type: string
+                                          description: Min is the lower bound, or
+                                            absent when unbounded.
+                                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                          x-kubernetes-int-or-string: true
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  values:
+                                    description: Values contains exact permitted values,
+                                      including noncontiguous CPU counts.
+                                    items:
+                                      anyOf:
+                                      - type: integer
+                                      - type: string
+                                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                      x-kubernetes-int-or-string: true
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                type: object
+                              set:
+                                description: Set describes whole integer sets or the
+                                  domain of their members.
+                                properties:
+                                  members:
+                                    description: Members contains valid member IDs
+                                      when known; nil means unknown.
+                                    items:
+                                      format: int32
+                                      type: integer
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                  required:
+                                    description: Required rejects the empty set.
+                                    type: boolean
+                                  sets:
+                                    description: Sets contains approved whole sets,
+                                      never an intersection of their members.
+                                    items:
+                                      description: Int32Set contains one approved
+                                        set of integer members.
+                                      properties:
+                                        members:
+                                          description: Members describes the set,
+                                            with ordering ignored.
+                                          items:
+                                            format: int32
+                                            minimum: 0
+                                            type: integer
+                                          type: array
+                                          x-kubernetes-list-type: set
+                                      required:
+                                      - members
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  unrestricted:
+                                    description: Unrestricted means Sets does not
+                                      restrict the choice of whole sets.
+                                    type: boolean
+                                type: object
+                              string:
+                                description: String contains permitted scalar strings.
+                                properties:
+                                  required:
+                                    description: Required rejects an empty value.
+                                    type: boolean
+                                  unrestricted:
+                                    description: Unrestricted means Values does not
+                                      restrict the string domain.
+                                    type: boolean
+                                  values:
+                                    description: Values contains permitted strings;
+                                      empty means none unless unrestricted.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: set
+                                type: object
+                              vgpu:
+                                description: VGPU describes vGPU profile identities
+                                  and their display information.
+                                properties:
+                                  allowed:
+                                    description: Allowed requires matching at least
+                                      one matcher in every group.
+                                    items:
+                                      description: VirtualMachineClassVGPUMatcherGroup
+                                        is one disjunction of vGPU matchers.
+                                      properties:
+                                        matchers:
+                                          description: Matchers contains alternatives
+                                            within this group.
+                                          items:
+                                            description: VirtualMachineClassResolvedVGPUMatcher
+                                              describes a profile identity constraint.
+                                            properties:
+                                              profileName:
+                                                description: ProfileName matches a
+                                                  profile name; absence matches every
+                                                  profile.
+                                                properties:
+                                                  fixed:
+                                                    description: Fixed matches a literal
+                                                      value.
+                                                    type: string
+                                                  glob:
+                                                    description: Glob matches a shell-style
+                                                      glob.
+                                                    type: string
+                                                  regex:
+                                                    description: Regex matches a regular
+                                                      expression.
+                                                    type: string
+                                                type: object
+                                            type: object
+                                          type: array
+                                          x-kubernetes-list-type: atomic
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  denied:
+                                    description: Denied rejects matching identities.
+                                    items:
+                                      description: VirtualMachineClassResolvedVGPUMatcher
+                                        describes a profile identity constraint.
+                                      properties:
+                                        profileName:
+                                          description: ProfileName matches a profile
+                                            name; absence matches every profile.
+                                          properties:
+                                            fixed:
+                                              description: Fixed matches a literal
+                                                value.
+                                              type: string
+                                            glob:
+                                              description: Glob matches a shell-style
+                                                glob.
+                                              type: string
+                                            regex:
+                                              description: Regex matches a regular
+                                                expression.
+                                              type: string
+                                          type: object
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                  values:
+                                    description: Values contains discovered and permitted
+                                      profiles.
+                                    items:
+                                      description: VirtualMachineClassResolvedVGPU
+                                        exposes only profile identity and display
+                                        data.
+                                      properties:
+                                        deviceVendorID:
+                                          description: DeviceVendorID identifies the
+                                            supporting PCI model, not a host or device
+                                            instance.
+                                          format: int64
+                                          type: integer
+                                        fbSizeInGiB:
+                                          description: FBSizeInGiB is the framebuffer
+                                            size per VM, in gibibytes.
+                                          format: int64
+                                          type: integer
+                                        profileClass:
+                                          description: ProfileClass describes the
+                                            profile class.
+                                          type: string
+                                        profileName:
+                                          description: ProfileName identifies the
+                                            profile.
+                                          type: string
+                                        profileSharing:
+                                          description: ProfileSharing describes profile
+                                            sharing behavior.
+                                          type: string
+                                      required:
+                                      - profileName
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                type: object
+                            type: object
+                          reason:
+                            description: Reason explains the source or absence of
+                              resolved choices.
+                            type: string
+                          state:
+                            description: |-
+                              State is Complete when Available is authoritative for the discovered
+                              domain, or Unknown when hardware evidence is incomplete.
+                            enum:
+                            - Complete
+                            - Unknown
+                            type: string
+                        required:
+                        - path
+                        - reason
+                        - state
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - path
+                      x-kubernetes-list-type: map
                   required:
                   - name
                   type: object

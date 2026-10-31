@@ -5,6 +5,7 @@
 package virtualmachineclass_test
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -19,7 +20,7 @@ import (
 )
 
 var suite = builder.NewTestSuiteForControllerWithContext(
-	pkgcfg.NewContextWithDefaultConfig(),
+	classControllerTestContext(),
 	virtualmachineclass.AddToManager,
 	manager.InitializeProvidersNoopFn)
 
@@ -27,7 +28,11 @@ func TestVirtualMachineClass(t *testing.T) {
 	suite.Register(t, "VirtualMachineClass controller suite", intgTests, unitTests)
 }
 
-var _ = BeforeSuite(suite.BeforeSuite)
+var _ = BeforeSuite(func() {
+	suite.BeforeSuite()
+	// Register discovery informers at startup; individual specs control the live gate.
+	pkgcfg.SetContext(suite, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+})
 
 var _ = AfterSuite(suite.AfterSuite)
 
@@ -46,4 +51,10 @@ func setConfigSpec(vmClass *vmopv1.VirtualMachineClass) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func classControllerTestContext() context.Context {
+	ctx := pkgcfg.NewContextWithDefaultConfig()
+	pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+	return ctx
 }

@@ -138,8 +138,8 @@ Blocked on a vSphere and govmomi release with the vmx-23 fields. Not a gate for 
 
 ### Story — Class hardware compatibility (vmop-4321)
 
-- [ ] T201 [US7] [vmop-4321] Class controller: per-zone `HardwareCompatible` from `ConfigTarget` and the options objects, asynchronous, re-checked as hardware and zones change; never rejects (zones per T010); watch `ConfigTarget` and `Zone`. Depends on T115 — `controllers/virtualmachineclass`
-- [ ] T201a [US7] [vmop-4321] E2E: a class with a zone-specific vGPU profile is accepted and reports per-zone `HardwareCompatible`
+- [x] T201 [US7] [vmop-4321] Class controller: per-zone `HardwareCompatible` from `ConfigTarget` and the options objects, asynchronous, re-checked as hardware and zones change; never rejects (zones per T010); watch `ConfigTarget` and `Zone`. Depends on T115 — `controllers/virtualmachineclass`
+- [x] T201a [US7] [vmop-4321] E2E: a class with a zone-specific vGPU profile is accepted and reports per-zone `HardwareCompatible` — experimental coverage added and compiled; live execution requires two namespace zones with different vGPU inventories and is pending.
 
 ### Story — Class resolved limits (vmop-4322)
 

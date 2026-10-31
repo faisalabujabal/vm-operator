@@ -7,6 +7,15 @@ package v1alpha6
 import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 const (
+	// VirtualMachineClassConditionHardwareCompatible reports discovered hardware support for class defaults.
+	VirtualMachineClassConditionHardwareCompatible = "HardwareCompatible"
+	// VirtualMachineClassHardwareSupportedReason indicates compatible discovered hardware.
+	VirtualMachineClassHardwareSupportedReason = "HardwareSupported"
+	// VirtualMachineClassHardwareUnsupportedReason indicates unsupported class defaults.
+	VirtualMachineClassHardwareUnsupportedReason = "HardwareUnsupported"
+	// VirtualMachineClassHardwareUnknownReason indicates incomplete discovery or unresolved defaults.
+	VirtualMachineClassHardwareUnknownReason = "HardwareUnknown"
+
 	// VirtualMachineClassConditionWithinGovernance reports whether a class fits the zone ceiling.
 	VirtualMachineClassConditionWithinGovernance = "WithinGovernance"
 	// VirtualMachineClassConditionGoverning reports whether this class governs the zone.

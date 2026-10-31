@@ -187,6 +187,9 @@ The class APIs, their generation and the namespace-copy integration are provider
 
 - [ ] T400 [US4/US3/US10] [vmop-4330] VM mutating webhook: on create and on `className` change (when `VMResize` or `VMResizeCPUMemory` is on, no annotation), write the class's values into the VM spec, clearing and re-defaulting fields the new class doesn't set; for unset governed fields use the image value or the governing default; fill `reservedProfileName` from the class default (omission inherits, `""` = none, per T019 for other enums) — `webhooks/virtualmachine/mutation`
 - [ ] T401 [US4] [vmop-4330] VM reconciler: rewrite class-supplied fields for VMs with the same-class resize annotation, as a spec patch with an optimistic lock separate from the deferred patch helper — `pkg/providers/vsphere`
+- [x] T401a [US4] [vmop-4330] Refresh the existing resource/compute/boot/advanced VM fields from the live class for opt-in same-class resize, using an isolated optimistic-lock spec patch; cover gates, reset behavior, retry and patch isolation — `pkg/vmclass/`, `pkg/providers/vsphere/`
+- [ ] T401b [US4] [vmop-4330] Extend same-class refresh as remaining defaulting categories become available: inline devices, reserved-profile selection and governing/image fallback; depends on the corresponding T400/schema work
+- [x] T402a [US4] [vmop-4330] Experimental same-class resize E2E: class edits retain VM defaults without opt-in, then refresh supported fields after opt-in — `test/e2e/vmservice/vmservice/virtualmachine/vm_compute_config.go`. Written and compile checked; live Supervisor execution remains pending
 - [ ] T402 [US1/US4] [vmop-4330] E2E: a VM that names a ranged class gets its defaults; a classless VM gets the governing defaults; a class change replaces and re-defaults the class-supplied fields
 
 ### Story — VM governance validation (vmop-4331)

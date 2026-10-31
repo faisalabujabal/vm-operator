@@ -2624,8 +2624,8 @@ var _ = Describe("ConfigSpecFromVMClassDevices", func() {
 var _ = Describe("ClassConfigSpecFromClassSpec", func() {
 	It("preserves projected advanced defaults and typed devices with the capability disabled", func() {
 		ctx := pkgcfg.NewContextWithDefaultConfig()
-		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
-		class := &vmopv1.VirtualMachineClassSpec{Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: []vmopv1.VGPUDevice{{ProfileName: "preserved-profile"}}}}, Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
+		pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = false })
+		class := &vmopv1.VirtualMachineClassSpec{Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{VGPUDevices: &vmopv1.VGPUDeviceListPolicy{Default: ptr.To([]vmopv1.VGPUDevice{{ProfileName: "preserved-profile"}})}}}, Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
 			ChangeBlockTracking: &vmopv1.BoolPolicy{Default: ptr.To(false)},
 			PreferHTEnabled:     &vmopv1.BoolPolicy{Default: ptr.To(true)},
 			PNUMANodeAffinity:   &vmopv1.Int32SetPolicy{Default: ptr.To([]int32{0, 2})},
@@ -3146,7 +3146,7 @@ var _ = Describe("Class boot and legacy device projection", func() {
 		class := vmopv1.VirtualMachineClassSpec{
 			BootOptions: &vmopv1.VirtualMachineClassBootOptions{BootDelay: vmopv1.FixedClassLong(1000)},
 			Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{
-				VGPUDevices: []vmopv1.VGPUDevice{{ProfileName: "existing-profile"}},
+				VGPUDevices: &vmopv1.VGPUDeviceListPolicy{Default: ptr.To([]vmopv1.VGPUDevice{{ProfileName: "existing-profile"}})},
 			}},
 		}
 		got, err := virtualmachine.ClassConfigSpecFromClassSpec(pkgcfg.NewContextWithDefaultConfig(), &class)

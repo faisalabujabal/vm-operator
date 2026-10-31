@@ -389,3 +389,203 @@ func quantityCounts(values []resource.Quantity) []int64 {
 	}
 	return result
 }
+
+var _ = Describe("Resolved class device choices", Label(testlabels.API), func() {
+	var f hardwareFixture
+	var classes []vmopv1.VirtualMachineClass
+	var resolve func(string) vmopv1.VirtualMachineClassResolvedField
+	BeforeEach(func() {
+		f = newHardwareFixture()
+		f.class.Namespace, f.class.Name = "tenant", "selectable"
+		f.class.Spec.Hardware.Devices = vmopv1.VirtualDevices{}
+		f.targets[0].Status.VGPUProfile = []vimv1.VirtualMachineVgpuProfileInfo{
+			{ProfileName: "gpu-a", DeviceVendorID: 123, FbSizeInGib: 4, ProfileSharing: "timeSliced", ProfileClass: "compute"},
+			{ProfileName: "gpu-b"}, {ProfileName: "other"},
+		}
+		f.targets[0].Status.DynamicPassthroughDevices = []vimv1.VirtualMachineDynamicPassthroughInfo{
+			{VendorID: 1, DeviceID: 2, CustomLabel: "fast", VendorName: "Vendor", DeviceName: "Model"},
+			{VendorID: 1, DeviceID: 2, CustomLabel: "slow"},
+			{VendorID: 3, DeviceID: 4, CustomLabel: "fast"},
+		}
+		classes = nil
+		resolve = func(path string) vmopv1.VirtualMachineClassResolvedField {
+			for _, field := range vmclass.ResolveClassLimits(&f.class, classes, "zone-a", f.ids, f.targets, f.options, f.guests) {
+				if field.Path == path {
+					return field
+				}
+			}
+			Fail("missing device field " + path)
+			return vmopv1.VirtualMachineClassResolvedField{}
+		}
+	})
+
+	It("uses target identities without requiring configuration options", func() {
+		f.options = nil
+		vgpu := resolve("hardware.devices.vgpuDevices")
+		Expect(vgpu.State).To(Equal("Complete"))
+		Expect(vgpu.Available.VGPU.Values).To(HaveLen(3))
+		direct := resolve("hardware.devices.dynamicDirectPathIODevices")
+		Expect(direct.State).To(Equal("Complete"))
+		Expect(direct.Available.DirectPath.Values).To(HaveLen(3))
+	})
+
+	It("intersects glob and regex allow policies and applies deny precedence", func() {
+		f.class.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{
+			Allowed: &[]vmopv1.VGPUDeviceMatcher{{ProfileName: &vmopv1.StringMatcher{Glob: ptr.To("gpu-*")}}},
+		}
+		governor := f.class.DeepCopy()
+		governor.Name = "governor"
+		governor.Spec.Governs = &vmopv1.VirtualMachineClassGovernance{}
+		governor.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{
+			Allowed: &[]vmopv1.VGPUDeviceMatcher{{ProfileName: &vmopv1.StringMatcher{Regex: ptr.To("^(gpu-[ab]|other)$")}}},
+			Denied:  &[]vmopv1.VGPUDeviceMatcher{{ProfileName: &vmopv1.StringMatcher{Fixed: ptr.To("gpu-b")}}},
+		}
+		classes = []vmopv1.VirtualMachineClass{*governor}
+		before := f.class.DeepCopy()
+		field := resolve("hardware.devices.vgpuDevices")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.VGPU.Values).To(HaveLen(1))
+		Expect(field.Available.VGPU.Values[0].ProfileName).To(Equal("gpu-a"))
+		Expect(field.Policy.VGPU.Allowed).To(HaveLen(2))
+		Expect(field.Policy.VGPU.Denied).To(HaveLen(1))
+		Expect(&f.class).To(Equal(before))
+	})
+
+	It("keeps empty allowed distinct from absent allowed", func() {
+		f.class.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{Allowed: &[]vmopv1.VGPUDeviceMatcher{}}
+		field := resolve("hardware.devices.vgpuDevices")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.VGPU.Values).To(BeEmpty())
+		Expect(field.Policy.VGPU.Allowed).To(HaveLen(1))
+		f.class.Spec.Hardware.Devices.VGPUDevices.Allowed = nil
+		Expect(resolve("hardware.devices.vgpuDevices").Available.VGPU.Values).To(HaveLen(3))
+	})
+
+	It("keeps a deny-only policy open for unmatched identities", func() {
+		f.class.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{
+			Denied: &[]vmopv1.VGPUDeviceMatcher{{ProfileName: &vmopv1.StringMatcher{Fixed: ptr.To("gpu-b")}}},
+		}
+		field := resolve("hardware.devices.vgpuDevices")
+		Expect(field.Available.VGPU.Values).To(HaveLen(2))
+		Expect(field.Available.VGPU.Values[0].ProfileName).To(Equal("gpu-a"))
+		Expect(field.Available.VGPU.Values[1].ProfileName).To(Equal("other"))
+	})
+
+	It("distinguishes empty discovery from incomplete discovery", func() {
+		f.targets[0].Status.VGPUProfile = nil
+		field := resolve("hardware.devices.vgpuDevices")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.VGPU.Values).To(BeEmpty())
+		f.ids = append(f.ids, "missing-cluster")
+		field = resolve("hardware.devices.vgpuDevices")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Available).To(BeNil())
+	})
+
+	It("does not mistake default devices for an identity restriction", func() {
+		f.class.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{Default: &[]vmopv1.VGPUDevice{{ProfileName: "gpu-a"}}}
+		f.class.Spec.Hardware.Devices.DynamicDirectPathIODevices = &vmopv1.DynamicDirectPathIODeviceListPolicy{Default: &[]vmopv1.DynamicDirectPathIODevice{{VendorID: 1, DeviceID: 2, CustomLabel: "fast", Count: 1}}}
+		Expect(resolve("hardware.devices.vgpuDevices").Available.VGPU.Values).To(HaveLen(3))
+		Expect(resolve("hardware.devices.dynamicDirectPathIODevices").Available.DirectPath.Values).To(HaveLen(3))
+	})
+
+	It("filters numeric device identity and backing labels independently", func() {
+		f.class.Spec.Hardware.Devices.DynamicDirectPathIODevices = &vmopv1.DynamicDirectPathIODeviceListPolicy{
+			Allowed: &[]vmopv1.DynamicDirectPathIODeviceMatcher{{VendorID: ptr.To(int64(1))}},
+			Denied:  &[]vmopv1.DynamicDirectPathIODeviceMatcher{{CustomLabel: &vmopv1.StringMatcher{Fixed: ptr.To("slow")}}},
+		}
+		field := resolve("hardware.devices.dynamicDirectPathIODevices")
+		Expect(field.Available.DirectPath.Values).To(Equal([]vmopv1.VirtualMachineClassResolvedDirectPath{
+			{VendorID: 1, DeviceID: 2, CustomLabel: "fast", VendorName: "Vendor", DeviceName: "Model"},
+		}))
+	})
+
+	It("reports unknown for missing, duplicated or stale target snapshots", func() {
+		for _, edit := range []func(){
+			func() { f.targets = nil },
+			func() { f.targets = append(f.targets, *f.targets[0].DeepCopy()) },
+			func() { f.targets[0].Generation++ },
+		} {
+			original := f.targets[0].DeepCopy()
+			edit()
+			for _, path := range []string{"hardware.devices.vgpuDevices", "hardware.devices.dynamicDirectPathIODevices"} {
+				field := resolve(path)
+				Expect(field.State).To(Equal("Unknown"))
+				Expect(field.Available).To(BeNil())
+			}
+			f.targets = []vimv1.ConfigTarget{*original}
+		}
+	})
+
+	It("normalizes signed PCI IDs before matching policies", func() {
+		f.targets[0].Status.DynamicPassthroughDevices = []vimv1.VirtualMachineDynamicPassthroughInfo{{VendorID: -1, DeviceID: -32768}}
+		f.class.Spec.Hardware.Devices.DynamicDirectPathIODevices = &vmopv1.DynamicDirectPathIODeviceListPolicy{
+			Allowed: &[]vmopv1.DynamicDirectPathIODeviceMatcher{{VendorID: ptr.To(int64(65535)), DeviceID: ptr.To(int64(32768))}},
+		}
+		values := resolve("hardware.devices.dynamicDirectPathIODevices").Available.DirectPath.Values
+		Expect(values).To(HaveLen(1))
+		Expect(values[0].VendorID).To(Equal(int64(65535)))
+		Expect(values[0].DeviceID).To(Equal(int64(32768)))
+	})
+
+	It("rejects malformed identity evidence instead of wrapping it to another device", func() {
+		f.targets[0].Status.DynamicPassthroughDevices = []vimv1.VirtualMachineDynamicPassthroughInfo{{VendorID: 65537, DeviceID: 2}}
+		field := resolve("hardware.devices.dynamicDirectPathIODevices")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Available).To(BeNil())
+	})
+
+	It("retains display fields but never embeds target inventory metadata", func() {
+		f.targets[0].Status.VGPUProfile[0].Name = "secret-host-inventory"
+		f.targets[0].Status.DynamicPassthroughDevices[0].Name = "secret-pci-inventory"
+		vgpu := resolve("hardware.devices.vgpuDevices")
+		Expect(vgpu.Available.VGPU.Values[0]).To(Equal(vmopv1.VirtualMachineClassResolvedVGPU{ProfileName: "gpu-a", DeviceVendorID: 123, FBSizeInGiB: 4, ProfileSharing: "timeSliced", ProfileClass: "compute"}))
+		encoded, err := json.Marshal([]vmopv1.VirtualMachineClassResolvedField{vgpu, resolve("hardware.devices.dynamicDirectPathIODevices")})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(encoded)).NotTo(ContainSubstring("secret-"))
+		Expect(string(encoded)).NotTo(ContainSubstring("cluster-a"))
+	})
+
+	It("deduplicates and sorts equivalent identities deterministically", func() {
+		first := resolve("hardware.devices.vgpuDevices")
+		f.targets[0].Status.VGPUProfile = []vimv1.VirtualMachineVgpuProfileInfo{
+			f.targets[0].Status.VGPUProfile[2], f.targets[0].Status.VGPUProfile[1], f.targets[0].Status.VGPUProfile[0], f.targets[0].Status.VGPUProfile[1],
+		}
+		Expect(resolve("hardware.devices.vgpuDevices")).To(Equal(first))
+	})
+
+	It("prefers discovered profile display data regardless of source cluster ordering", func() {
+		second := f.targets[0].DeepCopy()
+		second.UID, second.Spec.ID.ID = "b", "cluster-b"
+		f.targets[0].Status.VGPUProfile = nil
+		f.targets[0].Status.SharedGPUPassthroughTypes = []vimv1.VirtualMachinePciSharedGpuPassthroughInfo{{VGPU: "gpu-a"}}
+		f.targets = append(f.targets, *second)
+		f.ids = append(f.ids, "cluster-b")
+		first := resolve("hardware.devices.vgpuDevices")
+		Expect(first.Available.VGPU.Values).To(HaveLen(3))
+		f.targets[0].Spec.ID.ID, f.targets[1].Spec.ID.ID = f.targets[1].Spec.ID.ID, f.targets[0].Spec.ID.ID
+		Expect(resolve("hardware.devices.vgpuDevices")).To(Equal(first))
+	})
+
+	It("does not interpret an invalid matcher as a known empty hardware domain", func() {
+		f.class.Spec.Hardware.Devices.VGPUDevices = &vmopv1.VGPUDeviceListPolicy{Allowed: &[]vmopv1.VGPUDeviceMatcher{{ProfileName: &vmopv1.StringMatcher{Regex: ptr.To("[")}}}}
+		field := resolve("hardware.devices.vgpuDevices")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Reason).To(Equal("InvalidDevicePolicy"))
+		Expect(field.Available).To(BeNil())
+	})
+
+	It("does not expose choices under conflicting governing policies", func() {
+		governor := f.class.DeepCopy()
+		governor.Spec.Governs = &vmopv1.VirtualMachineClassGovernance{}
+		governor.Name = "one"
+		classes = append(classes, *governor)
+		governor.Name = "two"
+		classes = append(classes, *governor)
+		field := resolve("hardware.devices.vgpuDevices")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Reason).To(Equal("GovernanceUnresolved"))
+		Expect(field.Available).To(BeNil())
+		Expect(field.Policy).To(BeNil())
+	})
+})

@@ -27,6 +27,39 @@ import (
 
 // VMClassGovernanceSpec verifies governance API and controller behavior.
 func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchemaUpgradeInput) {
+	It("defaults governing enforcement and device preset memory locks", Label("core-functional", "experimental"), func() {
+		input := inputGetter()
+		proxy := input.ClusterProxy.(*common.VMServiceClusterProxy)
+		skipper.SkipUnlessInfraIs(input.Config.InfraConfig.InfraName, consts.WCP)
+		skipper.SkipUnlessSupervisorCapabilityEnabled(ctx, proxy, consts.VMServiceClasslessVMCapabilityName)
+		client := proxy.GetClient()
+		class := &vmopv1.VirtualMachineClass{
+			ObjectMeta: metav1.ObjectMeta{Namespace: input.WCPNamespaceName, GenerateName: "class-defaults-"},
+			Spec: vmopv1.VirtualMachineClassSpec{
+				Zones:   &[]string{},
+				Governs: &vmopv1.VirtualMachineClassGovernance{ExistingVMs: vmopv1.VirtualMachineClassExistingVMsAllowOnViolation},
+				Hardware: vmopv1.VirtualMachineClassHardware{Devices: vmopv1.VirtualDevices{
+					VGPUDevices: &vmopv1.VGPUDeviceListPolicy{Default: ptr.To([]vmopv1.VGPUDevice{{ProfileName: "schema-only-gpu"}})},
+				}},
+			},
+		}
+		Expect(client.Create(ctx, class)).To(Succeed())
+		DeferCleanup(func(cleanupCtx context.Context) { Expect(client.Delete(cleanupCtx, class)).To(Succeed()) })
+		key := ctrlclient.ObjectKeyFromObject(class)
+		Expect(client.Get(ctx, key, class)).To(Succeed())
+		Expect(class.Spec.Governs.Enforcement).To(Equal(vmopv1.VirtualMachineClassEnforcementDeny))
+		Expect(class.Spec.MemoryAdvanced.ReservationLockedToMax).To(Equal(vmopv1.FixedClassBool(true)))
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, key, class)).To(Succeed())
+			class.Spec.Governs.Enforcement = ""
+			class.Spec.MemoryAdvanced.ReservationLockedToMax = vmopv1.FixedClassBool(false)
+			g.Expect(client.Update(ctx, class)).To(Succeed())
+		}).Should(Succeed())
+		Expect(client.Get(ctx, key, class)).To(Succeed())
+		Expect(class.Spec.Governs.Enforcement).To(Equal(vmopv1.VirtualMachineClassEnforcementDeny))
+		Expect(class.Spec.MemoryAdvanced.ReservationLockedToMax).To(Equal(vmopv1.FixedClassBool(true)))
+	})
+
 	It("preserves class status and empty governance through older writers", Label("core-functional", "experimental"), func() {
 		input := inputGetter()
 		proxy := input.ClusterProxy.(*common.VMServiceClusterProxy)
@@ -84,7 +117,25 @@ func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchema
 		class.Spec.Governs = nil
 		class.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("4"))
 		Expect(client.Create(ctx, ceiling)).To(Succeed())
+		By("rejecting a second governor and a selectable class outside the ceiling")
+		duplicate := ceiling.DeepCopy()
+		duplicate.Name, duplicate.ResourceVersion, duplicate.UID = "duplicate", "", ""
+		Expect(client.Create(ctx, duplicate)).To(MatchError(ContainSubstring("overlaps governing class")))
+		invalid := class.DeepCopy()
+		invalid.Name = "outside-ceiling"
+		invalid.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("16"))
+		Expect(client.Create(ctx, invalid)).To(MatchError(ContainSubstring("spec.resources.size.cpu")))
+		missingPolicy := class.DeepCopy()
+		missingPolicy.Name = "missing-policy"
+		missingPolicy.Spec.Governs = &vmopv1.VirtualMachineClassGovernance{Zones: &[]string{}}
+		Expect(client.Create(ctx, missingPolicy)).To(MatchError(ContainSubstring("spec.governs.existingVMs")))
 		Expect(client.Create(ctx, class)).To(Succeed())
+		Eventually(func(g Gomega) {
+			invalid = &vmopv1.VirtualMachineClass{}
+			g.Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(class), invalid)).To(Succeed())
+			invalid.Spec.Resources.Size.CPU = vmopv1.FixedClassResource(resource.MustParse("16"))
+			g.Expect(client.Update(ctx, invalid)).To(MatchError(ContainSubstring("spec.resources.size.cpu")))
+		}).Should(Succeed())
 		key := ctrlclient.ObjectKeyFromObject(class)
 		Eventually(func(g Gomega) {
 			g.Expect(client.Get(ctx, key, class)).To(Succeed())
@@ -108,6 +159,12 @@ func VMClassGovernanceSpec(ctx context.Context, inputGetter func() VMClassSchema
 			g.Expect(condition.Reason).To(Equal(vmopv1.VirtualMachineClassGovernanceViolationReason))
 			g.Expect(class.Spec.Resources.Size.CPU.Default.String()).To(Equal("4"))
 		}, 2*time.Minute, time.Second).Should(Succeed())
+		By("permitting metadata housekeeping on the now noncompliant class")
+		Eventually(func(g Gomega) {
+			g.Expect(client.Get(ctx, key, class)).To(Succeed())
+			class.Labels = map[string]string{"governance-test": "metadata-update"}
+			g.Expect(client.Update(ctx, class)).To(Succeed())
+		}).Should(Succeed())
 		Expect(client.Delete(ctx, ceiling)).To(Succeed())
 		Eventually(func(g Gomega) {
 			g.Expect(client.Get(ctx, ctrlclient.ObjectKeyFromObject(zone), zone)).To(Succeed())

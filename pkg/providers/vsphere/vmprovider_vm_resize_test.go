@@ -6,6 +6,8 @@ package vsphere_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -25,8 +27,26 @@ import (
 	"github.com/vmware-tanzu/vm-operator/pkg/providers/vsphere"
 	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	vmopv1util "github.com/vmware-tanzu/vm-operator/pkg/util/vmopv1"
+	"github.com/vmware-tanzu/vm-operator/pkg/vmconfig"
 	"github.com/vmware-tanzu/vm-operator/test/builder"
 )
+
+// resizeClassReadClient injects a class edit immediately after the provider
+// selects a generation, before its update/resize argument builders run.
+type resizeClassReadClient struct {
+	client.Client
+	afterRead func(*vmopv1.VirtualMachineClass)
+}
+
+func (c *resizeClassReadClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := c.Client.Get(ctx, key, obj, opts...); err != nil {
+		return err
+	}
+	if class, ok := obj.(*vmopv1.VirtualMachineClass); ok && c.afterRead != nil {
+		c.afterRead(class)
+	}
+	return nil
+}
 
 func vmResizeTests() {
 	resourceRange := func(value resource.Quantity) *vmopv1.ResourceQuantityRange {
@@ -183,6 +203,93 @@ func vmResizeTests() {
 
 			Expect(createOrUpdateVM(ctx, vmProvider, vm)).To(Succeed())
 		})
+
+		DescribeTable("refreshes opted-in class defaults before resizing and preserves the memory lock", func(powerOn bool) {
+			ctx.Context = vmconfig.WithContext(ctx.Context)
+			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = true })
+			// Allow the existing schema upgrade to finish before introducing the request.
+			Expect(createOrUpdateVM(ctx, vmProvider, vm)).To(Succeed())
+			vm.Spec.CPUAdvanced = &vmopv1.VirtualMachineCPUAdvancedSpec{HotAddEnabled: ptr.To(true)}
+			vmClass.Spec.ConfigSpec = nil
+			vmClass.Spec.Resources.Size.CPU = resourceRange(resource.MustParse("4"))
+			vmClass.Spec.Resources.Requests.Memory = resourceRange(resource.MustParse("512Mi"))
+			vmClass.Spec.MemoryAdvanced = &vmopv1.VirtualMachineClassMemoryAdvancedSpec{ReservationLockedToMax: vmopv1.FixedClassBool(true)}
+			vmClass.Generation++
+			Expect(ctx.Client.Update(ctx, vmClass)).To(Succeed())
+			if powerOn {
+				vm.Spec.PowerState = vmopv1.VirtualMachinePowerStateOn
+			}
+			// Provider-only tests normally keep the VM in memory. Persist it so
+			// the isolated spec patch observes the same API object as a controller.
+			Expect(ctx.Client.Create(ctx, vm)).To(Succeed())
+			vm.Annotations[vmopv1.VirtualMachineSameVMClassResizeAnnotation] = ""
+			Expect(ctx.Client.Update(ctx, vm)).To(Succeed())
+			before := vm.DeepCopy()
+			err := vmProvider.CreateOrUpdateVirtualMachine(ctx, vm)
+			for attempt := 0; attempt < 10 && errors.Is(err, vsphere.ErrBackup); attempt++ {
+				err = vmProvider.CreateOrUpdateVirtualMachine(ctx, vm)
+			}
+			Expect(err).To(MatchError("refreshed same-class defaults"))
+			Expect(vm.Spec).To(Equal(before.Spec))
+			latest := &vmopv1.VirtualMachine{}
+			Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(vm), latest)).To(Succeed())
+			Expect(latest.Spec.Resources.Size.CPU.Value()).To(Equal(int64(4)))
+			Expect(latest.Spec.Resources.Requests.Memory).To(BeNil())
+			Expect(latest.Spec.CPUAdvanced.HotAddEnabled).To(BeNil())
+			// A new reconcile observes the committed spec and reaches the
+			// existing resize completion instead of repeating the spec patch.
+			vm.Spec = latest.Spec
+			vm.ResourceVersion = latest.ResourceVersion
+			selected := false
+			classReads := 0
+			wrapped := &resizeClassReadClient{Client: ctx.Client}
+			wrapped.afterRead = func(selectedClass *vmopv1.VirtualMachineClass) {
+				classReads++
+				// Status reads the class before the config step selects its generation.
+				if classReads == 1 {
+					return
+				}
+				if selected {
+					return
+				}
+				selected = true
+				newer := selectedClass.DeepCopy()
+				newer.Spec.Resources.Size.CPU = resourceRange(resource.MustParse("6"))
+				newer.Generation++
+				Expect(ctx.Client.Update(ctx, newer)).To(Succeed())
+			}
+			vmProvider = vsphere.NewVSphereVMProviderFromClient(ctx, wrapped, ctx.Recorder)
+			for attempt := 0; attempt < 10 && !selected; attempt++ {
+				classReads = 0
+				err = vmProvider.CreateOrUpdateVirtualMachine(ctx, vm)
+			}
+			Expect(selected).To(BeTrue())
+			// Completion must acknowledge the selected generation, never the
+			// concurrently edited class whose defaults were not materialized.
+			_, _, generation, _ := vmopv1util.GetLastResizedAnnotation(*vm)
+			Expect(generation).To(Equal(vmClass.Generation))
+			// Restore the selected class for the rest of this completion check.
+			latestClass := &vmopv1.VirtualMachineClass{}
+			Expect(ctx.Client.Get(ctx, client.ObjectKeyFromObject(vmClass), latestClass)).To(Succeed())
+			latestClass.Spec = vmClass.Spec
+			latestClass.Generation = vmClass.Generation
+			Expect(ctx.Client.Update(ctx, latestClass)).To(Succeed())
+			Expect(createOrUpdateVM(ctx, vmProvider, vm)).To(Succeed())
+			Expect(vm.Spec.Resources.Requests.Memory).To(BeNil())
+			Expect(vm.Spec.MemoryAdvanced.ReservationLockedToMax).To(HaveValue(BeTrue()))
+			assertExpectedResizedClassFields(vm, vmClass)
+			// The same pin is required when generation A was already applied:
+			// a concurrent B edit must not be acknowledged without a refresh.
+			selected = false
+			for attempt := 0; attempt < 10 && !selected; attempt++ {
+				classReads = 0
+				err = vmProvider.CreateOrUpdateVirtualMachine(ctx, vm)
+			}
+			Expect(selected).To(BeTrue())
+			Expect(err).NotTo(HaveOccurred())
+			_, _, generation, _ = vmopv1util.GetLastResizedAnnotation(*vm)
+			Expect(generation).To(Equal(vmClass.Generation))
+		}, Entry("remaining powered off", false), Entry("powering on", true))
 
 		Context("Powered off VM", func() {
 

@@ -161,13 +161,13 @@ The class APIs, their generation and the namespace-copy integration are provider
 
 ### Story — Class mutating webhook (vmop-4324)
 
-- [ ] T300 [US2/US8] [vmop-4324] Fill `governs.enforcement: Deny` and set the memory reservation lock on a preset class that attaches devices; number ranges are not completed — `webhooks/virtualmachineclass/mutation`
-- [ ] T300a [US2/US8] [vmop-4324] E2E: a written governing class reads back with `enforcement: Deny`, and a preset device class with the memory lock set
+- [x] T300 [US2/US8] [vmop-4324] Fill `governs.enforcement: Deny` and set the memory reservation lock on a preset class that attaches devices; number ranges are not completed — `webhooks/virtualmachineclass/mutation`
+- [x] T300a [US2/US8] [vmop-4324] E2E: a written governing class reads back with `enforcement: Deny`, and a preset device class with the memory lock set. Experimental scenario written and compiled; live Supervisor execution remains pending
 
 ### Story — Class validating webhook (vmop-4325)
 
 - [ ] T301 [US1/US2/US9/US12] [vmop-4325] Value-shape rules (T002) not covered by CEL, elevated `configSpec` paths, `externalID` immutable, `existingVMs` required (T003), `parentClassRefs` rejected in Milestone 1; the new class rules are gated on the capability — `webhooks/virtualmachineclass/validation`
-- [ ] T302 [US2] [vmop-4325] One governing class per zone; a selectable class must fit inside the zone's governing class, including `advanced.extraConfig.default` against `allowed`/`denied` — `webhooks/virtualmachineclass/validation`
+- [x] T302 [US2] [vmop-4325] One governing class per zone; a selectable class must fit inside the zone's governing class, including `advanced.extraConfig.default` against `allowed`/`denied` — `webhooks/virtualmachineclass/validation`
 - [ ] T303 [US10] [vmop-4325] A class's default configuration must match its default profile, and every allowed profile must fit within the class's resource and device policy (bounds are not fixed by listing a profile); every name in `reservedProfileName` resolves to a `VirtualMachineReservedProfile` in the namespace; `allowed` is required when `default` is set — `webhooks/virtualmachineclass/validation`
 - [ ] T303a [US10] [vmop-4325] On class update through the v2 path, reject only changes that alter an allocated profile's shape or make the class's default VM invalid for it; tests pin the exact field boundary (T009b) — `webhooks/virtualmachineclass/validation`
 - [ ] T304 [US9] [vmop-4325] Sticky v2 writes: reject a write through a CRD version older than the class's last-writer label
@@ -187,6 +187,9 @@ The class APIs, their generation and the namespace-copy integration are provider
 
 - [ ] T400 [US4/US3/US10] [vmop-4330] VM mutating webhook: on create and on `className` change (when `VMResize` or `VMResizeCPUMemory` is on, no annotation), write the class's values into the VM spec, clearing and re-defaulting fields the new class doesn't set; for unset governed fields use the image value or the governing default; fill `reservedProfileName` from the class default (omission inherits, `""` = none, per T019 for other enums) — `webhooks/virtualmachine/mutation`
 - [ ] T401 [US4] [vmop-4330] VM reconciler: rewrite class-supplied fields for VMs with the same-class resize annotation, as a spec patch with an optimistic lock separate from the deferred patch helper — `pkg/providers/vsphere`
+- [x] T401a [US4] [vmop-4330] Refresh the existing resource/compute/boot/advanced VM fields from the live class for opt-in same-class resize, using an isolated optimistic-lock spec patch; cover gates, reset behavior, retry and patch isolation — `pkg/vmclass/`, `pkg/providers/vsphere/`
+- [ ] T401b [US4] [vmop-4330] Extend same-class refresh as remaining defaulting categories become available: inline devices, reserved-profile selection and governing/image fallback; depends on the corresponding T400/schema work
+- [x] T402a [US4] [vmop-4330] Experimental same-class resize E2E: class edits retain VM defaults without opt-in, then refresh supported fields after opt-in — `test/e2e/vmservice/vmservice/virtualmachine/vm_compute_config.go`. Written and compile checked; live Supervisor execution remains pending
 - [ ] T402 [US1/US4] [vmop-4330] E2E: a VM that names a ranged class gets its defaults; a classless VM gets the governing defaults; a class change replaces and re-defaults the class-supplied fields
 
 ### Story — VM governance validation (vmop-4331)
@@ -290,3 +293,9 @@ Dependency tasks; vm-operator does not implement them. What vm-operator assumes 
 - [x] T103g5 [US1/US4/US9] [vmop-4315] Run advanced conversion, admission, provider and CEL checks; compile new-VM and staged-upgrade E2E assertions (`api/test/v1alpha5/conversion_test.go`, `pkg/vmclass/vmclass_test.go`, `webhooks/virtualmachineclass/validation/virtualmachineclass_validator_intg_test.go`, `test/e2e/vmservice/vmservice/virtualmachine/virtualmachinelcm.go`, `test/e2e/vmservice/vmservice/virtualmachine/vmclass_schema_upgrade.go`). Live E2E execution is deferred.
 
 T205a is implemented as experimental live-controller E2E in an isolated Kubernetes namespace, using explicit test zone availability. It is written and compile checked; live Supervisor execution remains pending. T205 builds on typed hashes introduced by the schema drafts, centralizes them in `pkg/vmclass`, and verifies that governance metadata does not rotate VM configuration snapshots.
+
+### Scoped class validation progress (vmop-4325)
+
+- [x] T301a [US2/US12] [vmop-4325] Require `governs.existingVMs` on top-level classes behind the live capability, preserving metadata-only and deletion housekeeping after drift
+- [x] T306a [US2/US12] [vmop-4325] Test typed class governance create/update, prospective zone conflicts, pre-existing ambiguity, namespace/deletion isolation, live gate changes and API-reader failures; extend experimental narrowing E2E with duplicate-governor, out-of-ceiling and missing-policy rejection
+- [ ] T306b [US2] [vmop-4325] Execute the class governance admission E2E on a candidate Supervisor; the scenario is written and compiled but not live-validated

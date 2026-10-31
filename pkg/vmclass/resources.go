@@ -45,6 +45,10 @@ func ApplyDefaults(
 	if err != nil || spec == nil {
 		return false, err
 	}
+	return applyResolvedDefaults(ctx, provider, vm, spec, oldVM != nil)
+}
+
+func applyResolvedDefaults(ctx context.Context, provider ResourceDefaultsProvider, vm *vmopv1.VirtualMachine, spec *vmopv1.VirtualMachineClassSpec, reset bool) (bool, error) {
 	if provider == nil {
 		return false, fmt.Errorf("class resource defaults provider is unavailable")
 	}
@@ -65,9 +69,9 @@ func ApplyDefaults(
 	}
 	before := vm.Spec.DeepCopy()
 	vm.Spec.Resources = resources.DeepCopy()
-	applyComputeDefaults(vm, effective, oldVM != nil)
-	applyBootDefaults(vm, effective, oldVM != nil)
-	applyAdvancedDefaults(vm, effective, oldVM != nil)
+	applyComputeDefaults(vm, effective, reset)
+	applyBootDefaults(vm, effective, reset)
+	applyAdvancedDefaults(vm, effective, reset)
 	return !apiequality.Semantic.DeepEqual(*before, vm.Spec), nil
 }
 

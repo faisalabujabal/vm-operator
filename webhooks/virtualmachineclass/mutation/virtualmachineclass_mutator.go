@@ -11,6 +11,7 @@ import (
 	"reflect"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -19,14 +20,16 @@ import (
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	"github.com/vmware-tanzu/vm-operator/pkg/builder"
+	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	pkgctx "github.com/vmware-tanzu/vm-operator/pkg/context"
+	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 )
 
 const (
 	webHookName = "default"
 )
 
-// -kubebuilder:webhook:path=/default-mutate-vmoperator-vmware-com-v1alpha6-virtualmachineclass,mutating=true,failurePolicy=fail,groups=vmoperator.vmware.com,resources=virtualmachineclasses,verbs=create;update,versions=v1alpha6,name=default.mutating.virtualmachineclass.v1alpha6.vmoperator.vmware.com,sideEffects=None,admissionReviewVersions=v1;v1beta1
+// +kubebuilder:webhook:matchPolicy=Exact,path=/default-mutate-vmoperator-vmware-com-v1alpha6-virtualmachineclass,mutating=true,failurePolicy=fail,groups=vmoperator.vmware.com,resources=virtualmachineclasses,verbs=create;update,versions=v1alpha6,name=default.mutating.virtualmachineclass.v1alpha6.vmoperator.vmware.com,sideEffects=None,admissionReviewVersions=v1;v1beta1
 // -kubebuilder:rbac:groups=vmoperator.vmware.com,resources=virtualmachineclass,verbs=get;list
 // -kubebuilder:rbac:groups=vmoperator.vmware.com,resources=virtualmachineclass/status,verbs=get
 
@@ -59,6 +62,7 @@ func (m mutator) Mutate(ctx *pkgctx.WebhookRequestContext) admission.Response {
 	}
 
 	var wasMutated bool
+	defaultClass := ctx.Op == admissionv1.Create
 
 	switch ctx.Op {
 	case admissionv1.Create:
@@ -68,11 +72,23 @@ func (m mutator) Mutate(ctx *pkgctx.WebhookRequestContext) admission.Response {
 		if err != nil {
 			return admission.Errored(http.StatusInternalServerError, err)
 		}
+		// Metadata and finalizer writes must remain possible after governance
+		// narrows or the capability changes. Only default actual spec edits.
+		defaultClass = !apiequality.Semantic.DeepEqual(modified.Spec, oldObj.Spec)
 		if SetControllerName(modified, oldObj) {
 			wasMutated = true
 		}
 	case admissionv1.Delete, admissionv1.Connect:
 		// No mutation is performed for these operations.
+	}
+
+	if defaultClass &&
+		pkgcfg.FromContext(ctx).Features.VMServiceClasslessVM {
+		changed, err := vmclass.ApplyClassDefaults(&modified.Spec)
+		if err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		wasMutated = wasMutated || changed
 	}
 
 	if !wasMutated {

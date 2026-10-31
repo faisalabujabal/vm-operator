@@ -19,8 +19,10 @@ import (
 
 	vmopv1 "github.com/vmware-tanzu/vm-operator/api/v1alpha6"
 	"github.com/vmware-tanzu/vm-operator/api/v1alpha6/common"
+	vimv1 "github.com/vmware-tanzu/vm-operator/external/vim/api/v1alpha1"
 	pkgcfg "github.com/vmware-tanzu/vm-operator/pkg/config"
 	"github.com/vmware-tanzu/vm-operator/pkg/constants/testlabels"
+	"github.com/vmware-tanzu/vm-operator/pkg/util/ptr"
 	"github.com/vmware-tanzu/vm-operator/pkg/vmclass"
 )
 
@@ -484,5 +486,170 @@ var _ = Describe("Class configuration hashes", Label(testlabels.API), func() {
 		after, err = vmclass.ConfigurationHash(ctx, spec)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(after).NotTo(Equal(before))
+	})
+})
+
+var _ = Describe("Resolved class policy options", Label(testlabels.API), func() {
+	var f hardwareFixture
+	var ceiling vmopv1.VirtualMachineClass
+	var resolve func(string) vmopv1.VirtualMachineClassResolvedField
+	BeforeEach(func() {
+		f = newHardwareFixture()
+		f.class.Name, f.class.Namespace = "selectable", "tenant"
+		f.targets[0].Status.NumNumaNodes = 4
+		ceiling = vmopv1.VirtualMachineClass{ObjectMeta: metav1.ObjectMeta{Name: "governor", Namespace: "tenant"}, Spec: vmopv1.VirtualMachineClassSpec{Governs: &vmopv1.VirtualMachineClassGovernance{}}}
+		resolve = func(path string) vmopv1.VirtualMachineClassResolvedField {
+			fields := vmclass.ResolveClassLimits(&f.class, []vmopv1.VirtualMachineClass{ceiling}, "zone", f.ids, f.targets, f.options, f.guests)
+			for _, field := range fields {
+				if field.Path == path {
+					return field
+				}
+			}
+			Fail("missing resolved field " + path)
+			return vmopv1.VirtualMachineClassResolvedField{}
+		}
+	})
+	It("does not turn a boolean default into a fixed policy and falls back to capabilities", func() {
+		f.class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{NestedHardwareVirtualizationEnabled: &vmopv1.BoolPolicy{Default: ptr.To(true)}}
+		field := resolve("cpuAdvanced.nestedHardwareVirtualizationEnabled")
+		Expect(field.Policy.Boolean.Values).To(Equal([]bool{false, true}))
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.Boolean.Values).To(Equal([]bool{false}))
+		f.options[0].Status.Capabilities.NestedHVSupported = true
+		Expect(resolve(field.Path).Available.Boolean.Values).To(Equal([]bool{false, true}))
+	})
+	It("intersects fixed boolean restrictions and retains a known empty result", func() {
+		f.class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{NestedHardwareVirtualizationEnabled: &vmopv1.BoolPolicy{AllowOverride: ptr.To(false), Default: ptr.To(true)}}
+		ceiling.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{NestedHardwareVirtualizationEnabled: &vmopv1.BoolPolicy{AllowOverride: ptr.To(false), Default: ptr.To(false)}}
+		field := resolve("cpuAdvanced.nestedHardwareVirtualizationEnabled")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Policy.Boolean.Values).To(BeEmpty())
+		Expect(field.Available.Boolean.Values).To(BeEmpty())
+	})
+	It("suppresses all available options when any cluster evidence is missing", func() {
+		f.ids = append(f.ids, "undiscovered-cluster")
+		field := resolve("cpuAdvanced.nestedHardwareVirtualizationEnabled")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Available).To(BeNil())
+		Expect(field.Policy.Boolean.Values).To(Equal([]bool{false, true}))
+	})
+	It("keeps guest-dependent and unmapped policies explicitly unknown", func() {
+		for _, path := range []string{"cpuAdvanced.hotAddEnabled", "cpuAdvanced.hotRemoveEnabled", "cpuAdvanced.iommuEnabled", "memoryAdvanced.hotAddEnabled", "advanced.hugePages1GEnabled", "advanced.vmxSwapEnabled"} {
+			field := resolve(path)
+			Expect(field.State).To(Equal("Unknown"), path)
+			Expect(field.Available).To(BeNil(), path)
+		}
+	})
+	It("uses explicit guest capabilities and requires matching secure boot evidence", func() {
+		f.class.Spec.ConfigSpec = []byte(`{"_typeName":"VirtualMachineConfigSpec","guestId":"otherLinux64Guest"}`)
+		f.guests = []vimv1.VirtualMachineGuestOptions{{Spec: vimv1.VirtualMachineGuestOptionsSpec{ID: "otherLinux64Guest"}, Status: vimv1.VirtualMachineGuestOptionsStatus{HardwareVersions: []vimv1.VirtualMachineGuestOptionsHardwareVersionStatus{{HardwareVersion: "vmx-21", SupportsCpuHotAdd: true, SupportsCpuHotRemove: false, SupportsMemoryHotAdd: true, VvtdSupported: &vimv1.BoolOption{Supported: false}, SupportsSecureBoot: ptr.To(false)}}}}}
+		f.options[0].Status.Capabilities.SecureBootSupported = ptr.To(true)
+		for _, path := range []string{"cpuAdvanced.hotAddEnabled", "memoryAdvanced.hotAddEnabled"} {
+			Expect(resolve(path).Available.Boolean.Values).To(Equal([]bool{false, true}))
+		}
+		for _, path := range []string{"cpuAdvanced.hotRemoveEnabled", "cpuAdvanced.iommuEnabled", "bootOptions.efiSecureBoot"} {
+			Expect(resolve(path).Available.Boolean.Values).To(Equal([]bool{false}))
+		}
+		f.guests[0].Status.HardwareVersions[0].SupportsSecureBoot = nil
+		Expect(resolve("bootOptions.efiSecureBoot").Available).To(BeNil())
+	})
+	It("does not invent automatic core topology support", func() {
+		f.options[0].Status.HardwareOptions.NumCoresPerSocket = &vimv1.IntOption{IntRange: vimv1.IntRange{Min: 0, Max: 8}}
+		Expect(resolve("cpuAdvanced.topology.coresPerSocket").Available).To(BeNil())
+		f.options[0].Status.HardwareOptions.AutoCoresPerSocket = &vimv1.BoolOption{Supported: false}
+		field := resolve("cpuAdvanced.topology.coresPerSocket")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.Integer.Values).To(BeEmpty())
+		Expect(*field.Available.Integer.Ranges[0].Min).To(Equal(int64(1)))
+		f.options[0].Status.HardwareOptions.AutoCoresPerSocket.Supported = true
+		Expect(resolve(field.Path).Available.Integer.Values).To(Equal([]int64{0}))
+	})
+
+	It("requires explicit capability evidence before offering multiple cores per socket", func() {
+		f.options[0].Status.HardwareOptions.NumCoresPerSocket = &vimv1.IntOption{IntRange: vimv1.IntRange{Min: 1, Max: 8}}
+		f.options[0].Status.HardwareOptions.AutoCoresPerSocket = &vimv1.BoolOption{Supported: false}
+		field := resolve("cpuAdvanced.topology.coresPerSocket")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(*field.Available.Integer.Ranges[0].Max).To(Equal(int64(1)))
+		f.options[0].Status.Capabilities = nil
+		Expect(resolve(field.Path).Available).To(BeNil())
+		f.class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: &vmopv1.IntRange{Min: ptr.To(int32(1)), Max: ptr.To(int32(1))}}}
+		Expect(*resolve(field.Path).Available.Integer.Ranges[0].Max).To(Equal(int64(1)))
+		f.class.Spec.CPUAdvanced = nil
+		f.options[0].Status.Capabilities = &vimv1.VirtualMachineConfigCapability{MultipleCoresPerSocketSupported: true}
+		Expect(*resolve(field.Path).Available.Integer.Ranges[0].Max).To(Equal(int64(8)))
+	})
+
+	It("intersects enum choices without treating defaults as restrictions", func() {
+		f.class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{LatencySensitivity: &vmopv1.EnumPolicy{Default: ptr.To("Normal")}}
+		ceiling.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{LatencySensitivity: &vmopv1.EnumPolicy{Allowed: ptr.To([]string{"High", "Normal"})}}
+		field := resolve("cpuAdvanced.latencySensitivity")
+		Expect(field.Policy.String.Unrestricted).To(BeFalse())
+		Expect(field.Policy.String.Values).To(Equal([]string{"High", "Normal"}))
+		Expect(field.Available).To(BeNil())
+		f.class.Spec.CPUAdvanced.LatencySensitivity.Allowed = ptr.To([]string{})
+		Expect(resolve(field.Path).Policy.String.Values).To(BeEmpty())
+		f.class.Spec.ReservedProfileName = &vmopv1.EnumPolicy{Allowed: ptr.To([]string{"reserved-a"})}
+		profile := resolve("reservedProfileName")
+		Expect(profile.Reason).To(Equal("ReservedProfileDiscoveryUnavailable"))
+		Expect(profile.Policy.String.Values).To(Equal([]string{"reserved-a"}))
+		Expect(profile.Available).To(BeNil())
+	})
+	It("resolves topology ranges with automatic zero without filling range gaps", func() {
+		f.options[0].Status.HardwareOptions.NumCoresPerSocket = &vimv1.IntOption{IntRange: vimv1.IntRange{Min: 2, Max: 8}}
+		f.options[0].Status.Capabilities.MultipleCoresPerSocketSupported = true
+		f.options[0].Status.HardwareOptions.AutoCoresPerSocket = &vimv1.BoolOption{Supported: true}
+		f.class.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: &vmopv1.IntRange{Default: ptr.To(int32(4))}}}
+		ceiling.Spec.CPUAdvanced = &vmopv1.VirtualMachineClassCPUAdvancedSpec{Topology: &vmopv1.VirtualMachineClassCPUTopologySpec{CoresPerSocket: &vmopv1.IntRange{Max: ptr.To(int32(6))}}}
+		field := resolve("cpuAdvanced.topology.coresPerSocket")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.Integer.Values).To(Equal([]int64{0}))
+		Expect(field.Available.Integer.Ranges).To(HaveLen(1))
+		Expect(*field.Available.Integer.Ranges[0].Min).To(Equal(int64(2)))
+		Expect(*field.Available.Integer.Ranges[0].Max).To(Equal(int64(6)))
+		Expect(field.Policy.Integer.Ranges[0].Min).To(BeNil())
+	})
+	It("publishes boot delay policy bounds without inventing browser numeric bounds", func() {
+		f.class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: &vmopv1.LongRange{Min: ptr.To(int64(100)), Default: ptr.To(int64(200))}}
+		ceiling.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: &vmopv1.LongRange{Max: ptr.To(int64(500))}}
+		field := resolve("bootOptions.bootDelay")
+		Expect(field.State).To(Equal("Unknown"))
+		Expect(field.Available).To(BeNil())
+		Expect(*field.Policy.Integer.Ranges[0].Min).To(Equal(int64(100)))
+		Expect(*field.Policy.Integer.Ranges[0].Max).To(Equal(int64(500)))
+	})
+	It("intersects whole NUMA sets and filters hardware-invalid sets", func() {
+		f.class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{1, 0}}, {Members: []int32{2, 3}}, {Members: []int32{4, 5}}})}}
+		ceiling.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Allowed: ptr.To([]vmopv1.Int32Set{{Members: []int32{0, 1}}, {Members: []int32{4, 5}}}), Required: ptr.To(true)}}
+		field := resolve("advanced.pnumaNodeAffinity")
+		Expect(field.State).To(Equal("Complete"))
+		Expect(field.Available.Set.Sets).To(Equal([]vmopv1.Int32Set{{Members: []int32{0, 1}}}))
+		Expect(field.Available.Set.Required).To(BeTrue())
+		Expect(field.Available.Set.Members).To(BeNil())
+		Expect(*f.class.Spec.Advanced.PNUMANodeAffinity.Allowed).To(HaveLen(3))
+		Expect((*f.class.Spec.Advanced.PNUMANodeAffinity.Allowed)[0].Members).To(Equal([]int32{1, 0}))
+	})
+	It("preserves optional empty NUMA sets and unrestricted hardware member fallback", func() {
+		field := resolve("advanced.pnumaNodeAffinity")
+		Expect(field.Available.Set.Unrestricted).To(BeTrue())
+		Expect(*field.Available.Set.Members).To(Equal([]int32{0, 1, 2, 3}))
+		f.class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{PNUMANodeAffinity: &vmopv1.Int32SetPolicy{Allowed: ptr.To([]vmopv1.Int32Set{})}}
+		field = resolve(field.Path)
+		Expect(field.Available.Set.Unrestricted).To(BeFalse())
+		Expect(field.Available.Set.Sets).To(Equal([]vmopv1.Int32Set{{Members: []int32{}}}))
+		f.class.Spec.Advanced.PNUMANodeAffinity.Required = ptr.To(true)
+		Expect(resolve(field.Path).Available.Set.Sets).To(BeEmpty())
+	})
+	It("keeps extraConfig allowed groups conjunctive, retains denies, and copies matchers", func() {
+		f.class.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Allowed: ptr.To([]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Glob: ptr.To("guestinfo.*")}}})}}
+		ceiling.Spec.Advanced = &vmopv1.VirtualMachineClassAdvancedSpec{ExtraConfig: &vmopv1.ExtraConfigListPolicy{Allowed: ptr.To([]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Glob: ptr.To("*.public")}}}), Denied: ptr.To([]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Fixed: ptr.To("guestinfo.secret.public")}}})}}
+		field := resolve("advanced.extraConfig")
+		Expect(field.Reason).To(Equal("NonFiniteDomain"))
+		Expect(field.Policy.ExtraConfig.Allowed).To(HaveLen(2))
+		Expect(field.Policy.ExtraConfig.Denied).To(HaveLen(1))
+		*field.Policy.ExtraConfig.Allowed[0].Matchers[0].Key.Glob = "mutated"
+		Expect(*(*f.class.Spec.Advanced.ExtraConfig.Allowed)[0].Key.Glob).To(Equal("guestinfo.*"))
+		f.class.Spec.Advanced.ExtraConfig.Allowed = ptr.To([]vmopv1.ExtraConfigMatcher{})
+		Expect(resolve(field.Path).Policy.ExtraConfig.Allowed[0].Matchers).To(BeEmpty())
 	})
 })

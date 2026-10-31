@@ -44,7 +44,7 @@ func VMClassResolvedLimitsSpec(ctx context.Context, inputGetter func() VMClassSc
 		Expect(admin.List(ctx, &zones, ctrlclient.InNamespace(input.WCPNamespaceName))).To(Succeed())
 		Expect(admin.List(ctx, &targets)).To(Succeed())
 		Expect(admin.List(ctx, &options)).To(Succeed())
-		zone, cpus, memory := resolvedLimitsFixture(zones.Items, targets.Items, options.Items)
+		zone, cpus, memory, sourceOptions := resolvedLimitsFixture(zones.Items, targets.Items, options.Items)
 		if zone == nil {
 			Skip("requires current cluster-specific CPU/memory discovery with at least three CPU choices")
 		}
@@ -67,17 +67,31 @@ func VMClassResolvedLimitsSpec(ctx context.Context, inputGetter func() VMClassSc
 					CPU:    &vmopv1.ResourceQuantityRange{Min: ptr.To(cpus[0]), Max: ptr.To(cpus[len(cpus)-1]), Default: ptr.To(cpus[0])},
 					Memory: &vmopv1.ResourceQuantityRange{Min: memory.Min, Max: memory.Max, Default: memory.Min},
 				}},
+				Advanced: &vmopv1.VirtualMachineClassAdvancedSpec{
+					ChangeBlockTracking: &vmopv1.BoolPolicy{Default: ptr.To(false)},
+					ExtraConfig: &vmopv1.ExtraConfigListPolicy{
+						Allowed: &[]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Glob: ptr.To("guestinfo.*")}}},
+						Denied:  &[]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Glob: ptr.To("guestinfo.secret.*")}}},
+					},
+				},
 			},
 		}
 		class := ceiling.DeepCopy()
 		class.Name = "selectable"
 		class.Spec.Governs = nil
 		class.Spec.Resources.Size.CPU.Max = ptr.To(cpus[len(cpus)-2])
+		class.Spec.Advanced.ChangeBlockTracking.AllowOverride = ptr.To(false)
+		class.Spec.Advanced.ExtraConfig = &vmopv1.ExtraConfigListPolicy{
+			Allowed: &[]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Glob: ptr.To("guestinfo.app.*")}}},
+			Denied:  &[]vmopv1.ExtraConfigMatcher{{Key: &vmopv1.StringMatcher{Fixed: ptr.To("guestinfo.app.private")}}},
+		}
+		class.Spec.BootOptions = &vmopv1.VirtualMachineClassBootOptions{BootDelay: &vmopv1.LongRange{Min: ptr.To(int64(100)), Max: ptr.To(int64(200)), Default: ptr.To(int64(100))}}
 		Expect(admin.Create(ctx, ceiling)).To(Succeed())
 		Expect(admin.Create(ctx, class)).To(Succeed())
 		Eventually(func(g Gomega) {
 			g.Expect(admin.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class)).To(Succeed())
 			expectResolvedResources(g, class, cpus[:len(cpus)-1], memory)
+			expectResolvedPolicies(g, class, sourceOptions.Status.Capabilities, true)
 		}, 2*time.Minute, time.Second).Should(Succeed())
 
 		By("narrowing governance without rewriting the selectable class")
@@ -98,17 +112,19 @@ func VMClassResolvedLimitsSpec(ctx context.Context, inputGetter func() VMClassSc
 		Expect(admin.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class)).To(Succeed())
 		class.Spec.Resources.Size.CPU = &vmopv1.ResourceQuantityRange{Default: ptr.To(cpus[0])}
 		class.Spec.Resources.Size.Memory = nil
+		class.Spec.Advanced.ChangeBlockTracking.AllowOverride = nil
 		Expect(admin.Update(ctx, class)).To(Succeed())
 		Eventually(func(g Gomega) {
 			g.Expect(admin.Get(ctx, ctrlclient.ObjectKeyFromObject(class), class)).To(Succeed())
 			expectResolvedResources(g, class, cpus, memory)
+			expectResolvedPolicies(g, class, sourceOptions.Status.Capabilities, false)
 		}, 2*time.Minute, time.Second).Should(Succeed())
 	})
 }
 
 // resolvedLimitsFixture chooses one authoritative source snapshot. It does not
 // synthesize discovery, combine clusters, or expose pool totals in class status.
-func resolvedLimitsFixture(zones []topologyv1.Zone, targets []vimv1.ConfigTarget, options []vimv1.VirtualMachineConfigOptions) (*topologyv1.Zone, []resource.Quantity, vmopv1.VirtualMachineClassResolvedQuantityRange) {
+func resolvedLimitsFixture(zones []topologyv1.Zone, targets []vimv1.ConfigTarget, options []vimv1.VirtualMachineConfigOptions) (*topologyv1.Zone, []resource.Quantity, vmopv1.VirtualMachineClassResolvedQuantityRange, *vimv1.VirtualMachineConfigOptions) {
 	for _, zone := range zones {
 		if !zone.DeletionTimestamp.IsZero() {
 			continue
@@ -150,11 +166,61 @@ func resolvedLimitsFixture(zones []topologyv1.Zone, targets []vimv1.ConfigTarget
 				return &topologyv1.Zone{
 					ObjectMeta: metav1.ObjectMeta{Name: "limits-zone"},
 					Spec:       topologyv1.ZoneSpec{Zone: zone.Spec.Zone, ManagedVMs: topologyv1.VSphereEntityInfo{ClusterMoIDs: []string{target.Spec.ID.ID}}},
-				}, cpus, vmopv1.VirtualMachineClassResolvedQuantityRange{Min: ptr.To(hardware.Memory.Min.DeepCopy()), Max: &maximum}
+				}, cpus, vmopv1.VirtualMachineClassResolvedQuantityRange{Min: ptr.To(hardware.Memory.Min.DeepCopy()), Max: &maximum}, option.DeepCopy()
 			}
 		}
 	}
-	return nil, nil, vmopv1.VirtualMachineClassResolvedQuantityRange{}
+	return nil, nil, vmopv1.VirtualMachineClassResolvedQuantityRange{}, nil
+}
+
+func expectResolvedPolicies(g Gomega, class *vmopv1.VirtualMachineClass, capabilities *vimv1.VirtualMachineConfigCapability, fixedCBT bool) {
+	fields := class.Status.Zones[0].ResolvedLimits
+	for _, path := range []string{"advanced.changeBlockTracking", "advanced.extraConfig", "bootOptions.bootDelay"} {
+		i := slices.IndexFunc(fields, func(f vmopv1.VirtualMachineClassResolvedField) bool { return f.Path == path })
+		g.Expect(i).To(BeNumerically(">=", 0))
+		field := fields[i]
+		g.Expect(field.Policy).NotTo(BeNil())
+		switch path {
+		case "advanced.changeBlockTracking":
+			g.Expect(field.Policy.Boolean).NotTo(BeNil())
+			policy := []bool{false, true}
+			if fixedCBT {
+				policy = []bool{false}
+			}
+			g.Expect(field.Policy.Boolean.Values).To(Equal(policy))
+			if capabilities == nil {
+				g.Expect(field.State).To(Equal("Unknown"))
+				g.Expect(field.Available).To(BeNil())
+				continue
+			}
+			g.Expect(field.State).To(Equal("Complete"), field.Reason)
+			g.Expect(field.Available).NotTo(BeNil())
+			g.Expect(field.Available.Boolean).NotTo(BeNil())
+			available := []bool{false}
+			if !fixedCBT && capabilities.ChangeTrackingSupported {
+				available = append(available, true)
+			}
+			g.Expect(field.Available.Boolean.Values).To(Equal(available))
+		case "advanced.extraConfig":
+			g.Expect(field.State).To(Equal("Unknown"))
+			g.Expect(field.Reason).To(Equal("NonFiniteDomain"))
+			g.Expect(field.Available).To(BeNil())
+			g.Expect(field.Policy.ExtraConfig).NotTo(BeNil())
+			g.Expect(field.Policy.ExtraConfig.Allowed).To(ConsistOf(
+				vmopv1.VirtualMachineClassExtraConfigMatcherGroup{Matchers: []vmopv1.VirtualMachineClassResolvedExtraConfigMatcher{{Key: &vmopv1.VirtualMachineClassResolvedStringMatcher{Glob: ptr.To("guestinfo.app.*")}}}},
+				vmopv1.VirtualMachineClassExtraConfigMatcherGroup{Matchers: []vmopv1.VirtualMachineClassResolvedExtraConfigMatcher{{Key: &vmopv1.VirtualMachineClassResolvedStringMatcher{Glob: ptr.To("guestinfo.*")}}}},
+			))
+			g.Expect(field.Policy.ExtraConfig.Denied).To(ConsistOf(
+				vmopv1.VirtualMachineClassResolvedExtraConfigMatcher{Key: &vmopv1.VirtualMachineClassResolvedStringMatcher{Fixed: ptr.To("guestinfo.app.private")}},
+				vmopv1.VirtualMachineClassResolvedExtraConfigMatcher{Key: &vmopv1.VirtualMachineClassResolvedStringMatcher{Glob: ptr.To("guestinfo.secret.*")}},
+			))
+		case "bootOptions.bootDelay":
+			g.Expect(field.State).To(Equal("Unknown"))
+			g.Expect(field.Available).To(BeNil())
+			g.Expect(field.Policy.Integer).NotTo(BeNil())
+			g.Expect(field.Policy.Integer.Ranges).To(Equal([]vmopv1.VirtualMachineClassResolvedIntegerRange{{Min: ptr.To(int64(100)), Max: ptr.To(int64(200))}}))
+		}
+	}
 }
 
 func expectResolvedResources(g Gomega, class *vmopv1.VirtualMachineClass, cpus []resource.Quantity, memory vmopv1.VirtualMachineClassResolvedQuantityRange) {

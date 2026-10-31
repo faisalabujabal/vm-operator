@@ -86,14 +86,22 @@ func unitTestsMutating() {
 		before, oldBefore := ctx.Obj.DeepCopy(), ctx.OldObj.DeepCopy()
 		response := ctx.Mutate(&ctx.WebhookRequestContext)
 		Expect(response.Allowed).To(BeTrue())
-		Expect(len(response.Patches) > 0).To(Equal(expected))
+		if expected {
+			Expect(response.Patches).NotTo(BeEmpty())
+		} else {
+			Expect(response.Patches).To(BeEmpty())
+		}
 		Expect(ctx.Obj).To(Equal(before), "input must not be mutated")
 		Expect(ctx.OldObj).To(Equal(oldBefore), "old input must not be mutated")
 		if op == admissionv1.Create || op == admissionv1.Update {
 			pkgcfg.SetContext(ctx, func(c *pkgcfg.Config) { c.Features.VMServiceClasslessVM = !enabled })
 			response = ctx.Mutate(&ctx.WebhookRequestContext)
 			Expect(response.Allowed).To(BeTrue())
-			Expect(len(response.Patches) > 0).To(Equal(!expected))
+			if expected {
+				Expect(response.Patches).To(BeEmpty())
+			} else {
+				Expect(response.Patches).NotTo(BeEmpty())
+			}
 		}
 	},
 		Entry("enabled create", true, admissionv1.Create, true),
